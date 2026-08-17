@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sameValue, seal, unseal } from "../src/session/seal.js";
-import { SESSION_PASSWORD } from "./support.js";
+import { OTHER_SESSION_PASSWORD, SESSION_PASSWORD } from "./support.js";
 
 describe("the sealed cookie", () => {
   it("gives back exactly what was sealed", () => {
@@ -23,7 +23,7 @@ describe("the sealed cookie", () => {
 
   it("refuses a cookie sealed with another password, which is what rotating one does", () => {
     const sealed = seal(SESSION_PASSWORD, { userId: "user-1" });
-    expect(unseal("another-password-of-32-characters", sealed)).toBeNull();
+    expect(unseal(OTHER_SESSION_PASSWORD, sealed)).toBeNull();
   });
 
   it("refuses anything that is not a sealed cookie", () => {

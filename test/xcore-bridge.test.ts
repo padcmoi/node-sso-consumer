@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createXcoreBridge } from "../src/xcore-bridge.js";
 import { PROVIDERS } from "../src/providers.js";
-import { API_BASE, readOnlyHmac, stubHmac, stubProvider } from "./support.js";
+import { API_BASE, SESSION_PASSWORD, readOnlyHmac, stubHmac, stubProvider } from "./support.js";
 
 const CONFIG_PATH = "/api/v1/sso/consumer/config";
 const INSTALL_PATH = "/api/v1/portal/install";
@@ -19,7 +19,7 @@ const bridgeFor = (provider: ReturnType<typeof stubProvider>, overrides: Partial
     environment: "prod",
     provider: API_BASE,
     consumer,
-    session: { password: "a-session-password-of-32-chars-!!" },
+    session: { password: SESSION_PASSWORD },
     // Nothing may open a socket in a test: the accounts are followed on demand.
     live: { enabled: false },
     fetch: provider.fetch,

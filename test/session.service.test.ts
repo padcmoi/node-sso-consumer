@@ -3,7 +3,16 @@ import { SsoAuthService } from "../src/auth.service.js";
 import { SsoHttpClient } from "../src/http.js";
 import { seal } from "../src/session/seal.js";
 import { SsoSessionService } from "../src/session/session.service.js";
-import { API_BASE, SESSION_PASSWORD, aSession, anAccount, stubHmac, stubJar, stubProvider } from "./support.js";
+import {
+  API_BASE,
+  OTHER_SESSION_PASSWORD,
+  SESSION_PASSWORD,
+  aSession,
+  anAccount,
+  stubHmac,
+  stubJar,
+  stubProvider,
+} from "./support.js";
 
 const SESSION_PATH = "/api/v1/sso/consumer/session";
 const ME_PATH = "/api/v1/sso/me";
@@ -92,7 +101,7 @@ describe("resolving a request", () => {
   });
 
   it("answers null on a cookie sealed with another password", async () => {
-    const jar = stubJar({ sso_session: seal("another-password-of-32-characters!", { userId: "user-1" }) });
+    const jar = stubJar({ sso_session: seal(OTHER_SESSION_PASSWORD, { userId: "user-1" }) });
     expect(await serviceFor(stubProvider()).resolve(jar)).toBeNull();
   });
 
