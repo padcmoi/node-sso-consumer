@@ -31,6 +31,16 @@ interface LiveAccount {
 export interface SsoLiveAccountsOptions {
   auth: SsoAuthService;
   realtimeUrl: string;
+  /**
+   * What the provider pushed, handed on to whoever else has to hear it: the
+   * application's own store, the browsers it holds sockets for, a cache it keeps.
+   *
+   * The held view is written FIRST and this is called after, so anything the
+   * listener does reads the new value rather than the one being replaced.
+   */
+  onAccount?(userId: string, me: SsoMe): void;
+  /** The session is over. Called once, after the account has been let go. */
+  onSignedOut?(userId: string): void;
   logger?: SsoLogger;
 }
 
@@ -76,6 +86,7 @@ export class SsoLiveAccounts {
       onAccount: (pushed) => {
         const entry = this.accounts.get(userId);
         if (entry) entry.me = pushed;
+        this.options.onAccount?.(userId, pushed);
       },
       // The IdP session was closed, the account disabled, or its access to THIS
       // application revoked. Nothing is served from the entry afterwards, and the
@@ -101,6 +112,7 @@ export class SsoLiveAccounts {
     held.signedOut = true;
     held.socket.close();
     this.accounts.delete(userId);
+    this.options.onSignedOut?.(userId);
   }
 
   /** Every socket, for a process shutting down. */

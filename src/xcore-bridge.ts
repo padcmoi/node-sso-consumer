@@ -3,13 +3,14 @@ import { SsoConfigService } from "./config.service.js";
 import { clientContextOf, jarOf } from "./http/web.js";
 import { SsoMiddleware } from "./http/middleware.js";
 import { SsoRealtimeBridge } from "./realtime/bridge.js";
+import { SsoRealtimeClient } from "./realtime/realtime.client.js";
 import type { TicketStore } from "./realtime/tickets.js";
 import { SsoHttpClient, type FetchLike, type SsoHmacRuntime } from "./http.js";
 import type { WebRequest, WebResponse } from "./http/web.js";
 import { SsoLiveAccounts } from "./session/live-accounts.js";
 import { SsoSessionService } from "./session/session.service.js";
 import { providerFor, type ProviderAddresses, type ProviderEnvironment, type ProviderOverride } from "./providers.js";
-import type { SsoConsumerDeclaration, SsoLogger } from "./types.js";
+import type { SsoConsumerDeclaration, SsoLogger, SsoMe } from "./types.js";
 
 export interface XcoreBridgeOptions {
   /**
@@ -67,6 +68,14 @@ export interface XcoreBridgeOptions {
    * already, delivered over the broker as it is for an application already paired.
    */
   installToken?: string;
+  /**
+   * The AMQP queue the installation creates for this application's credential.
+   *
+   * Defaults to the clientId on the provider's side, which is what an operator
+   * recognises on the broker. Named here only by an application whose queue was
+   * decided elsewhere.
+   */
+  installQueue?: string;
   routes?: {
     basePath?: string;
     afterLogin?: string;
@@ -89,7 +98,33 @@ export interface XcoreBridgeOptions {
    * asking anyway: the socket says what CHANGED, and this is what re-proves the
    * session is still there when nothing has.
    */
-  live?: { enabled?: boolean; staleAfterMs?: number };
+  live?: {
+    enabled?: boolean;
+    staleAfterMs?: number;
+    /**
+     * What the provider pushed, as it arrives, for whoever else has to hear it:
+     * the application's own store, the browser sockets it holds, a cache it keeps.
+     *
+     * The reads below are already reactive without this - it is for what this
+     * library cannot know about.
+     */
+    onAccount?(userId: string, me: SsoMe): void;
+    /** The session is over: empty whatever was kept for this account. */
+    onSignedOut?(userId: string): void;
+  };
+  /**
+   * What runs once per DEPLOYMENT rather than once per process.
+   *
+   * Declaring is idempotent, so several workers declaring the same thing at boot
+   * is noise rather than a fault - but it is one call per worker per boot against
+   * a provider with better things to do. Given an election, only the worker that
+   * wins it declares and the others skip straight past.
+   *
+   * Pairing is elected too, and there it is not noise: the code is single-use, so
+   * a second worker's attempt is refused and its boot fails on a credential the
+   * first one has already written.
+   */
+  bootstrap?: { elect?(): boolean | Promise<boolean> };
   logger?: SsoLogger;
   /** Injectable so a test drives everything without a network. */
   fetch?: FetchLike;
@@ -179,7 +214,20 @@ export class XcoreBridge {
     this.live =
       options.live?.enabled === false
         ? null
-        : new SsoLiveAccounts({ auth: this.auth, realtimeUrl: this.provider.realtimeUrl, logger: options.logger });
+        : new SsoLiveAccounts({
+            auth: this.auth,
+            realtimeUrl: this.provider.realtimeUrl,
+            // Called through the options object rather than handed over as a
+            // reference, so a listener kept on its own `this` still finds it.
+            onAccount: (userId, me) => options.live?.onAccount?.(userId, me),
+            onSignedOut: (userId) => {
+              // Proven-at is cleared with the account, or a later session for the
+              // same reader would be served from a stamp nothing stands behind.
+              this.provenAt.delete(userId);
+              options.live?.onSignedOut?.(userId);
+            },
+            logger: options.logger,
+          });
 
     this.realtime = new SsoRealtimeBridge({
       auth: this.auth,
@@ -254,6 +302,42 @@ export class XcoreBridge {
     return resolved;
   }
 
+  /**
+   * Reading and writing this exchange's cookies, on raw headers.
+   *
+   * For a handler that needs the sealed session itself rather than the account -
+   * the access token behind a socket it opens of its own, typically.
+   */
+  jar(req: WebRequest, res: WebResponse) {
+    return jarOf(req, res);
+  }
+
+  /**
+   * A socket of one's own, following ONE account.
+   *
+   * The bridge already follows every account it holds a session for, and that is
+   * what makes the reads reactive - this is for a caller wanting the frames
+   * themselves: pushing into its own store, fanning out to its own browsers,
+   * emptying a cache the library knows nothing about.
+   *
+   * The caller owns what comes back and closes it. Nothing here is torn down with
+   * `close()`, which only lets go of what the bridge itself opened.
+   */
+  async follow(params: { accessToken: string; onAccount?(me: SsoMe): void; onSignedOut?(): void; topics?: string[] }) {
+    const client = new SsoRealtimeClient({
+      auth: this.auth,
+      url: this.provider.realtimeUrl,
+      // Called on the caller's own object, so a listener that is a method keeps
+      // whatever `this` it was written against.
+      onAccount: (me) => params.onAccount?.(me),
+      onSignedOut: () => params.onSignedOut?.(),
+      topics: params.topics,
+      logger: this.options.logger,
+    });
+    await client.connect(params.accessToken);
+    return client;
+  }
+
   private isProven(userId: string) {
     const at = this.provenAt.get(userId);
     if (at === undefined) return false;
@@ -314,18 +398,35 @@ export class XcoreBridge {
    * sign-in afterwards.
    */
   async start() {
+    // The election is asked ONCE and covers both halves. Asking twice would let a
+    // worker lose the pairing and win the declaration, which is a worker declaring
+    // with a credential it has not got yet.
+    const elected = (await this.options.bootstrap?.elect?.()) ?? true;
+    if (!elected) {
+      this.options.logger?.info?.("[sso] another worker is pairing and declaring; skipping");
+      return null;
+    }
+
     await this.install();
     return this.declare();
   }
 
   /**
-   * Redeem the pairing code, once, and put what it brings back where this
-   * application signs from.
+   * The whole installation, from a code typed into a config to an application the
+   * provider knows about.
+   *
+   * ONE call, and the work is the provider's: the code goes to the route that
+   * exists for it, and what happens over there is the AMQP queue this
+   * application's credential will be propagated to, then the SSO config and the
+   * HMAC credential together, then the code itself, spent and withdrawn. What
+   * comes back is written into the credential store here - and from that moment
+   * this application signs for itself, exactly as every application already
+   * installed does.
    *
    * Skipped in silence when there is nothing to do: no code given, or a credential
    * already in the store. Pairing twice is not a repair - the code is single-use
    * and the second attempt is refused - so the check is what makes `start()` safe
-   * to leave in place forever.
+   * to leave in place forever, in the config, for the life of the application.
    */
   async install() {
     const token = this.options.installToken;
@@ -339,10 +440,17 @@ export class XcoreBridge {
       throw new Error("An install token was given but this HMAC runtime cannot write a credential: it can only receive one");
     }
 
-    const paired = await this.config.pair({ token, clientId: this.options.clientId });
+    const paired = await this.config.pair({
+      token,
+      clientId: this.options.clientId,
+      amqpQueue: this.options.installQueue,
+    });
     // Called on its own object, so a runtime keeping state on `this` still works.
     await clients.setSecret(paired.clientId, paired.secret);
-    this.options.logger?.info?.(`[sso] paired as ${paired.clientId}`);
+    this.options.logger?.info?.(`[sso] installed as ${paired.clientId}; the install token is spent`);
+    // `answer` carries the queue and the secret its propagation consumer verifies
+    // inbound events with. Handed back rather than acted on: this library holds no
+    // broker, and the application that does is the one entitled to wire it.
     return paired;
   }
 
