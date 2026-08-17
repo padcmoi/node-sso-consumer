@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { FetchLike, HttpAnswer, SsoHmacRuntime } from "../src/http.js";
 import type { CookieJar, CookieOptions } from "../src/session/session.service.js";
 import type { SsoMe } from "../src/types.js";
@@ -139,7 +140,17 @@ export const aSession = (suffix = "1") => ({
   user: { id: "user-1", email: "reader@example.com", displayName: "Reader", avatarUrl: null },
 });
 
-/** 32 characters, which is the floor the sealing enforces. */
-export const SESSION_PASSWORD = "a-session-password-of-32-chars-!!";
+/**
+ * A sealing password for the tests, minted rather than written down.
+ *
+ * Its value is meaningless - the sealing only demands 32 characters - and a
+ * meaningless string that LOOKS like a password is exactly what a secret scanner
+ * reports, having no way to tell one from a real one. Generating it costs nothing
+ * and leaves nothing in the repository to report.
+ */
+export const SESSION_PASSWORD = randomBytes(24).toString("base64url");
+
+/** Another one, for the cases that check a cookie sealed by somebody else. */
+export const OTHER_SESSION_PASSWORD = randomBytes(24).toString("base64url");
 
 export const API_BASE = "https://x-core.example.com:13001";
