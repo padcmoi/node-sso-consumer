@@ -140,7 +140,13 @@ export class SsoConfigService {
    * and reading it here would pin this library to a contract that is still
    * settling. Give `installPath` when it lands somewhere other than the default.
    */
-  async pair(params: { token: string; clientId: string; declaration?: Partial<SsoConsumerDeclaration> }) {
+  async pair(params: {
+    token: string;
+    clientId: string;
+    declaration?: Partial<SsoConsumerDeclaration>;
+    /** Left out unless this application's queue was decided elsewhere. */
+    amqpQueue?: string;
+  }) {
     const path = this.options.installPath ?? "/api/v1/portal/install";
 
     // UNSIGNED, and it is the only call in this library that is: the code IS the
@@ -148,7 +154,13 @@ export class SsoConfigService {
     const payload = await this.options.http.unsigned(
       path,
       "POST",
-      { clientId: params.clientId, declaration: { ...this.options.declaration, ...params.declaration } },
+      {
+        clientId: params.clientId,
+        declaration: { ...this.options.declaration, ...params.declaration },
+        // Omitted rather than sent empty: the provider names it after the clientId,
+        // and sending an undefined key would be sending a decision nobody made.
+        ...(params.amqpQueue ? { amqpQueue: params.amqpQueue } : {}),
+      },
       { "x-install-token": params.token }
     );
 

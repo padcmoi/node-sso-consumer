@@ -1,5 +1,7 @@
 # NestJS integration
 
+> **Proprietary to x-core.** This library speaks x-core's routes, HMAC scheme, permission catalogue and realtime protocol; there is no other implementation of them. See [Installing an application](./install.md).
+
 The same bridge, wired the way Nest wires things: a provider, a middleware for the routes, a guard for the two doors, and a filter for the refusals.
 
 Nothing here is Express-specific - the library reads what Node hands over, so this works the same under the Fastify platform.
@@ -130,10 +132,16 @@ export class XcoreExceptionFilter implements ExceptionFilter {
   constructor(private readonly xcore: XcoreService) {}
 
   catch(error: SsoError, host: ArgumentsHost) {
+    const req = host.switchToHttp().getRequest();
     const res = host.switchToHttp().getResponse();
 
     if (error.code === "FORBIDDEN") return res.status(403).json({ error: error.message });
-    if (error.code === "UNAUTHORIZED") return res.redirect(this.xcore.bridge.provider.portalUrl);
+    if (error.code === "UNAUTHORIZED") {
+      // An XHR gets a status it can act on; a navigation gets the portal, which is
+      // the only thing in this ecosystem that signs a human in.
+      const wantsJson = String(req.headers?.accept ?? "").includes("application/json");
+      return wantsJson ? res.status(401).json({ error: "No session" }) : res.redirect(this.xcore.bridge.provider.portalUrl);
+    }
     // NO_CREDENTIAL, NOT_XCORE, UNREACHABLE, MALFORMED_ANSWER, REFUSED: this
     // application's problem, and never the reader's to act on.
     res.status(503).json({ error: "The identity provider is unavailable" });
@@ -164,10 +172,10 @@ export class XcoreModule implements NestModule {
   constructor(private readonly xcore: XcoreService) {}
 
   configure(consumer: MiddlewareConsumer) {
-    // GET  /api/auth/sso/start      where the portal's card points
-    // GET  /api/auth/sso/callback   the code comes back, sealed into a session
-    // POST /api/auth/logout         closes THIS app's session, not the SSO's
-    // GET  /api/auth/session        the account, its details, its rights
+    // GET  /api/auth/sso/start       where the portal's card points
+    // GET  /api/auth/sso/callback    the code comes back, sealed into a session
+    // POST /api/auth/logout          closes THIS app's session, not the SSO's
+    // GET  /api/auth/session         the account, its details, its rights
     // POST /api/auth/realtime-ticket what the page dials the socket with
     consumer.apply(this.xcore.bridge.middleware.routes()).forRoutes("*");
   }
@@ -178,6 +186,9 @@ export class XcoreModule implements NestModule {
 
 ```ts
 import { Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
+// Imported once anywhere in the app, for its effect: it is what puts `req.me` on
+// the request type, so this file reads it without reaching for `any`.
+import "@naskot/node-sso-consumer/express";
 import { XcoreGuard, RequirePermissions } from "../sso/xcore.guard";
 import { XcoreService } from "../sso/xcore.service";
 
@@ -191,10 +202,10 @@ export class QueuesController {
 
   @Get()
   @RequirePermissions("view-queues")
-  async list(@Req() req) {
+  async list(@Req() req: Request) {
     return {
       data: await this.broker.list(),
-      // Hiding a button the API would refuse anyway. Hiding is not enforcing - the
+      // Hides a button the API would refuse anyway. Hiding is not enforcing - the
       // decorator on each route is.
       can: { create: this.xcore.bridge.can(req, "create-queues") },
     };
@@ -202,17 +213,17 @@ export class QueuesController {
 
   @Post()
   @RequirePermissions("create-queues")
-  async create(@Req() req) {
+  async create(@Req() req: Request) {
     // The guard already resolved it for this request; asking again would be
     // another round trip - and another token rotation - for the same answer.
-    return { data: await this.broker.create(req.body, { by: req.me.user.email }) };
+    return { data: await this.broker.create(req.body, { by: req.me?.user.email }) };
   }
 }
 ```
 
 ## 6) The socket
 
-`src/main.ts` - the bridge hangs on the underlying HTTP server, and returns for every upgrade that is not its own, so an application's own feeds can share it.
+`src/main.ts` - the bridge hangs on the underlying HTTP server, and returns for every upgrade that is not its own, so an application's own gateways can share it.
 
 ```ts
 const app = await NestFactory.create(AppModule);
@@ -222,11 +233,15 @@ await app.listen(3333);
 app.get(XcoreService).bridge.realtime.attach(app.getHttpServer());
 ```
 
-## 7) Production notes
+## 7) The page
+
+The browser half is the library's too - see [the Express guide](./express.md#5-the-page) for `@naskot/node-sso-consumer/client`, which is the same file whatever serves it.
+
+## 8) Production notes
 
 - `trust proxy` behind a relay, or every session is filed under the container's address rather than the browser's.
 - `onApplicationBootstrap` rather than `onModuleInit`: everything the declaration needs - the credential store, its broker - is up by then.
 - The `installToken` is single use and expires in a day. It is skipped in silence once a credential is in the store, so it is safe to leave in the config.
-- One process holds its realtime tickets in memory. Several processes, or a dev server that reloads, hand a shared store in `realtime.tickets`.
+- Several workers need an election and a shared ticket store: see [Running several processes](./multi-process.md).
 - `session.password` is 32 characters or more, and changing it signs everyone out.
 - Read `process.env` in this provider layer, never in the library.

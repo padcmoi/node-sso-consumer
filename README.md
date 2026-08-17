@@ -2,9 +2,15 @@
 
 What a Node application needs to **be** a consumer of the x-core SSO, rather than to build one.
 
-It pairs itself, declares itself at every boot, holds the reader's session, reads their rights and follows the account over a socket. No login page, no copy of anybody's personal data, no permission stored anywhere.
+It installs itself from a pairing code, declares itself at every boot, holds the reader's session, reads their rights and follows the account over a socket. No login page, no copy of anybody's personal data, no permission stored anywhere.
 
 Framework-agnostic: everything runs on the raw Node `IncomingMessage` / `ServerResponse`, so the same code serves Express, NestJS (Express or Fastify), Nitro/Nuxt and anything else that hands over what Node hands over.
+
+> ## This library only works with x-core
+>
+> It is **proprietary to x-core**, not a general SSO client. It speaks x-core's routes, x-core's HMAC scheme, x-core's `resource:action` catalogue and x-core's realtime protocol - and there is no other implementation of any of them. There is no `client_id`/`client_secret` pair here, no discovery document, no JWKS, no OIDC: the HMAC clientId **is** the SSO identity. Pointed at an OAuth2 or OIDC provider it does not degrade, it simply has nothing to talk to.
+>
+> It also needs an x-core recent enough to serve `POST /api/v1/portal/install`. See [Installing an application](./docs/install.md).
 
 ## Install
 
@@ -30,12 +36,15 @@ const xcore = createXcoreBridge({
     dependGlobalRessource: ["infrastructure"],
   },
   session: { password: sessionPassword },
-  // Given once, on the first boot: it pairs, writes the credential in and declares.
+  // The pairing code, straight from x-core's manager screen. One call with it and
+  // the provider creates the AMQP queue, the SSO config and the HMAC credential,
+  // then withdraws the code. Left in the config forever: skipped in silence once
+  // the credential is in the store.
   installToken,
   routes: { basePath: "/api/auth", afterLogin: "/" },
 });
 
-// Pair if it must, then declare. Await it BEFORE serving: an application that
+// Install if it must, then declare. Await it BEFORE serving: an application that
 // failed to declare itself boots perfectly and refuses every sign-in afterwards.
 await xcore.start();
 ```
@@ -110,10 +119,33 @@ A WebSocket is not bound by the same-origin policy and the provider wants two se
 
 Following an account is what makes the reads reactive: a permission granted or revoked anywhere lands within seconds instead of at the next navigation. `live.staleAfterMs` (five minutes by default) is the ceiling past which the session is re-proven anyway.
 
+## The browser half
+
+A page holds no SSO code either. `@naskot/node-sso-consumer/client` reads the session, asks for a ticket, dials this host's socket, reconnects, and tells a session that is over from a connection that dropped:
+
+```ts
+import { createSsoClient } from "@naskot/node-sso-consumer/client";
+
+const sso = createSsoClient({
+  basePath: "/api/auth",
+  onAccount: (me) => render(me),
+  onSignedOut: () => location.assign("https://portal.example.com/"),
+});
+
+const me = await sso.connect();
+if (!me) location.assign("/api/auth/sso/start");
+if (sso.can("infrastructure:delete-queues")) deleteButton.hidden = false;
+```
+
+`@naskot/node-sso-consumer/express` is a third entry, imported once for its effect: it declares `req.me`, `req.ssoTokens` and `req.ssoUserId` on the framework's own request type.
+
 ## Integration guides
 
+- [Installing an application](./docs/install.md) - the pairing code, and what x-core does with it
 - [Express](./docs/express.md)
 - [NestJS](./docs/nestjs.md)
+- [Nuxt 4 / Nitro server API](./docs/nitro.md)
+- [Running several processes](./docs/multi-process.md)
 
 ## Development
 
@@ -132,4 +164,4 @@ npm run build
 - Provider addresses are written down in the library, per environment, not configured per deployment. `provider` is required all the same, because it is the one address whose mistake is silent.
 - The session cookie is sealed AES-256-GCM. The token pair IS the session: no local refresh chain. Changing `session.password` signs everyone out.
 - `dependGlobalRessource` is an array and is sent whether it is empty or not.
-- One process holds its realtime tickets in memory. Several processes, or a dev server that reloads, need a shared `realtime.tickets` store.
+- One process holds its realtime tickets in memory and pairs on its own. Several processes need `realtime.tickets` and `bootstrap.elect` - see [Running several processes](./docs/multi-process.md).
