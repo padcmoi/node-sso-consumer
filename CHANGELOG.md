@@ -1,7 +1,8 @@
 # CHANGELOG
 
-## [Unreleased] - 2026-08-17
+## [Unreleased] - 2026-08-18
 
+- Add the packed tarball under `packages/`, so a consumer installs this library from a path rather than from a registry
 - Add `createXcoreBridge`, the single entry point linking an application to the x-core SSO
 - Add the pairing service: `install()` sends the pairing code to x-core's dedicated route, which creates the AMQP queue, records the SSO consumer config, mints the HMAC credential and withdraws the code; the secret comes back and is written into the injected credential store
 - Add the auth service: session opening, token rotation with concurrent-call dedup, account read and permission checks
