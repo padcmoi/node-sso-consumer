@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { SsoAuthService } from "../src/auth.service.js";
 import { SsoHttpClient } from "../src/http.js";
-import { API_BASE, aSession, anAccount, stubHmac, stubProvider } from "./support.js";
+import { API_BASE, aSession, anAccount, anIdentity, stubHmac, stubProvider } from "./support.js";
 
 const SESSION_PATH = "/api/v1/sso/consumer/session";
 const ME_PATH = "/api/v1/sso/me";
 
 const authFor = (provider: ReturnType<typeof stubProvider>) => {
-  const http = new SsoHttpClient({ apiBase: API_BASE, clientId: "oauth-test", hmac: stubHmac(), fetch: provider.fetch });
-  return new SsoAuthService({ http, resource: "infrastructure" });
+  const identity = anIdentity();
+  const http = new SsoHttpClient({ apiBase: API_BASE, identity, hmac: stubHmac(provider) });
+  return new SsoAuthService({ http, identity });
 };
 
 const tokens = { accessToken: "access-1", accessTokenExpiresAt: "", refreshToken: "refresh-1", refreshTokenExpiresAt: "" };
@@ -118,7 +119,8 @@ describe("the realtime credentials", () => {
   it("signs the handshake, which is what says WHICH APP is dialling", async () => {
     const headers = await authFor(stubProvider()).realtimeHandshake({ url: "wss://x-core.example.com:13002/realtime" });
 
-    expect(headers["x-client-id"]).toBe("oauth-test");
+    // Signed by the application's own runtime, not here: this library never
+    // implements the protocol, it asks for the headers and passes them on.
     expect(headers["x-signature"]).toBeDefined();
   });
 

@@ -12,7 +12,7 @@
 //
 // Nothing reads `process.env`, opens a store or holds a secret.
 
-export { XcoreBridge, createXcoreBridge, type XcoreBridgeOptions } from "./xcore-bridge.js";
+export { XcoreBridge, createXcoreBridge, type XcoreBridgeOptions, type XcoreInjection } from "./xcore-bridge.js";
 
 export { SsoConfigService, type SsoConfigServiceOptions } from "./config.service.js";
 export { SsoAuthService, type SsoAuthServiceOptions, type SsoResolution } from "./auth.service.js";
@@ -43,7 +43,17 @@ export {
 export { SsoRealtimeBridge, type SsoRealtimeBridgeOptions } from "./realtime/bridge.js";
 export { MemoryTicketStore, type TicketStore } from "./realtime/tickets.js";
 
-export { SsoHttpClient, type SsoHttpOptions, type SsoHmacRuntime, type FetchLike, type HttpAnswer } from "./http.js";
+export {
+  SsoHttpClient,
+  type SsoHttpOptions,
+  type XcoreHmacInjection,
+  type SignedFetch,
+  type SignHeaders,
+  type HttpAnswer,
+} from "./http.js";
+
+// The application's own store, and the keys this library reads and writes in it.
+export { ENV, SsoEnvironment, mintSessionPassword, type XcoreEnvironmentStore } from "./environment.js";
 
 export { createPermissionReader, holds, type PermissionReader } from "./permissions.js";
 export { PROVIDERS, providerFor, type ProviderAddresses, type ProviderEnvironment, type ProviderOverride } from "./providers.js";

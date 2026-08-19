@@ -4,18 +4,30 @@ Everything below is about one thing: three pieces of this library keep state in 
 
 ## 1) One worker declares, not all of them
 
+The election belongs to the DEPLOYMENT, not to this library: it knows nothing of PM2,
+of how many workers there are, or of how they are numbered. So it exposes two calls
+instead of one, and the guard lives outside.
+
 ```ts
-createXcoreBridge({
-  // ...
-  bootstrap: { elect: () => redlock.tryAcquire("sso:boot", 30_000).then(Boolean) },
-});
+// Every worker: read the store. Without it none of them knows what it signs as,
+// which cookie it opens, or what it declares.
+await xcore.load();
+
+// One worker: pair if it must, and declare.
+if (process.env.NODE_APP_INSTANCE === "0") await xcore.start();
 ```
 
-Declaring is idempotent, so several workers declaring the same thing is noise rather than a fault. **Pairing is not.** The install code is single-use: the second worker's attempt is refused, and its boot fails on a credential the first one has already written.
+`start()` does `load()` itself, so a single-process application calls it alone and
+nothing else.
 
-The election is asked once and covers both halves - asking twice would let a worker lose the pairing and win the declaration, which is a worker declaring with a credential it has not got yet.
+Declaring is idempotent, so several workers declaring the same thing is noise rather
+than a fault. **Pairing is not.** The install code is single-use: a second worker
+racing the first is refused, and its boot fails on a credential the first one has
+already written. That race only exists on the very first boot of a brand-new
+application - after that `INSTALLED` is true and no worker looks at the code at all.
 
-A worker that loses skips both and serves normally. What it must NOT do is give up on booting: the declaration it skipped is one another worker is making.
+A worker that is not elected must NOT give up on booting: the declaration it skipped is
+one another worker is making, and everything it needs to serve came out of `load()`.
 
 ## 2) A ticket minted anywhere must be spendable anywhere
 

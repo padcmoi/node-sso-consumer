@@ -12,6 +12,65 @@ Framework-agnostic: everything runs on the raw Node `IncomingMessage` / `ServerR
 >
 > It also needs an x-core recent enough to serve `POST /api/v1/portal/install`. See [Installing an application](./docs/install.md).
 
+## It replaces the whole local authentication
+
+Not part of it. An application using this library holds **no user table, no password
+column, no reset flow, no session table, no permission table and no login page**. It
+does not sign anyone in - the portal does - and there is nothing here to sign in
+against.
+
+| What an application used to hold | Where it lives now                                          |
+| -------------------------------- | ----------------------------------------------------------- |
+| a users table                    | x-core. `GET /sso/me` answers the account on every request  |
+| passwords, hashes, resets        | x-core. This library never sees one                         |
+| a login page and its form        | the portal. This application only offers `<base>/sso/start` |
+| a sessions table                 | a sealed cookie at the reader's end, AES-256-GCM            |
+| roles and permissions            | x-core, recomputed per account and answered with every `me` |
+| a "remember me" / refresh chain  | the token pair inside that cookie, rotated by x-core        |
+
+Two consequences worth stating out loud.
+
+**Nothing is cached, ever.** The account, the profile and the rights are asked of
+x-core on EVERY request. That is what makes a sign-out elsewhere, an account disabled
+or an access revoked land on the very next call - with nothing to invalidate here and
+no webhook to expose. A local session table cannot do that: it would still be valid.
+
+**Nothing personal is stored.** The cookie carries the account id and the token pair,
+and that is all. No email, no name, no address, no permission - not in a column, not
+in a cache, not in a persisted front store.
+
+What this library does NOT do: decide anything about the application's own data. The
+gate it declares says who may come in at all; who may touch which invoice is the
+application's business, and always was.
+
+## Two environments, and neither is a setting
+
+`environment: "dev" | "prod"` picks a set of four addresses that are **written down in
+the code**, not read from anywhere:
+
+|              | dev                               | prod                               |
+| ------------ | --------------------------------- | ---------------------------------- |
+| the API      | `d-sso.gestionpratique.ovh:13001` | `x-core.gestionpratique.ovh:13001` |
+| login window | `d-sso.gestionpratique.ovh`       | `x-sso.gestionpratique.ovh`        |
+| the portal   | `d-portal.gestionpratique.ovh`    | `portail.gestionpratique.ovh`      |
+| the socket   | `d-sso.gestionpratique.ovh:13002` | `x-core.gestionpratique.ovh:13002` |
+
+They vary per **ecosystem**, not per deployment, which is why they are not
+configuration. And the mistake they invite is the one that fails silently: the API and
+the login window differ by a port, and the login window answers `204 No Content` to
+anything it does not know. An application pointed at it declares itself
+"successfully" at every boot, logs its own success, and nothing exists on the other
+side. `provider` is required for exactly that reason - it is the one address an
+integrator has to have looked at and typed, and `declare()` refuses a base that does
+not reject an unsigned call with a `401`.
+
+Naming `prod` while deploying to a dev machine is legitimate and reads as what it is:
+one account list, one set of permissions, one place to grant them, shared across both
+of an application's own environments.
+
+An application on another ecosystem passes an object as `provider` and overrides all
+four.
+
 ## Install
 
 ```bash
@@ -21,33 +80,44 @@ npm i @naskot/node-sso-consumer
 ## Quick start
 
 ```ts
+import { signedHttpFetch, buildHttpSignedHeaders } from "@naskot/node-hmac-auth";
 import { createXcoreBridge } from "@naskot/node-sso-consumer";
 
-const xcore = createXcoreBridge({
-  clientId: "oauth-x-infra-manager",
-  hmac: hmacService.http,
+export const xcore = createXcoreBridge({
   environment: "prod",
   // WITH its port: the login window lives on the same name without one and
   // answers 204 to anything, so a mistake here fails silently.
   provider: "https://x-core.example.com:13001/",
-  consumer: {
-    redirectUri: "https://app.example.com/api/auth/sso/callback",
-    cancelUri: "https://app.example.com/",
-    dependGlobalRessource: ["infrastructure"],
-  },
-  session: { password: sessionPassword },
-  // The pairing code, straight from x-core's manager screen. One call with it and
-  // the provider creates the AMQP queue, the SSO config and the HMAC credential,
-  // then withdraws the code. Left in the config forever: skipped in silence once
-  // the credential is in the store.
-  installToken,
+  // The ONE value copied by hand, from the screen that mints it. It stays here for
+  // the life of the application: what decides whether the pairing happens is the
+  // `INSTALLED` key below, not the presence of this code.
+  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
   routes: { basePath: "/api/auth", afterLogin: "/" },
+
+  // Everything this application LENDS, in one key and nowhere else.
+  di: {
+    hmac: {
+      fetch: async (url, init) => signedHttpFetch(url, { ...init, secret: await hmacRuntime.secretHash(), secretIsHashed: true }),
+      signHeaders: (request) => sign(request),
+      setSecret: (clientId, secret) => hmacRuntime.clients.setSecret(clientId, secret),
+    },
+    environment: {
+      load: () => settings.all(),
+      save: (values) => settings.upsertAll(values),
+    },
+  },
 });
 
-// Install if it must, then declare. Await it BEFORE serving: an application that
-// failed to declare itself boots perfectly and refuses every sign-in afterwards.
+// Read the store, pair if `INSTALLED` is not true, then declare. Await it BEFORE
+// serving: an application that failed to declare itself boots perfectly and refuses
+// every sign-in afterwards.
 await xcore.start();
 ```
+
+There is no identity here, no callback URL, no gate and no session password. All of
+it is entered on x-core's console when the pairing code is minted, brought back by
+the pairing, and kept in the application's own store - so **nothing comes from a
+`.env`**, and one place decides what this application is.
 
 ## The five routes
 
@@ -164,4 +234,4 @@ npm run build
 - Provider addresses are written down in the library, per environment, not configured per deployment. `provider` is required all the same, because it is the one address whose mistake is silent.
 - The session cookie is sealed AES-256-GCM. The token pair IS the session: no local refresh chain. Changing `session.password` signs everyone out.
 - `dependGlobalRessource` is an array and is sent whether it is empty or not.
-- One process holds its realtime tickets in memory and pairs on its own. Several processes need `realtime.tickets` and `bootstrap.elect` - see [Running several processes](./docs/multi-process.md).
+- One process holds its realtime tickets in memory and pairs on its own. Several need a shared `realtime.tickets` store, and an election OUTSIDE this library: every worker calls `load()`, the elected one calls `start()` - see [Running several processes](./docs/multi-process.md).

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { SsoError } from "../src/errors.js";
+import { SsoEnvironment } from "../src/environment.js";
 import { SsoHttpClient } from "../src/http.js";
-import type { SsoHmacRuntime } from "../src/http.js";
-import { API_BASE, readOnlyHmac, stubHmac, stubProvider } from "./support.js";
+import { API_BASE, anIdentity, stubHmac, stubProvider } from "./support.js";
 
-const clientFor = (provider: ReturnType<typeof stubProvider>, hmac: SsoHmacRuntime = stubHmac()) =>
-  new SsoHttpClient({ apiBase: API_BASE, clientId: "oauth-test", hmac, fetch: provider.fetch });
+const clientFor = (provider: ReturnType<typeof stubProvider>) =>
+  new SsoHttpClient({ apiBase: API_BASE, identity: anIdentity(), hmac: stubHmac(provider) });
 
 const codeOf = async (run: () => Promise<unknown>) => {
   try {
@@ -19,28 +19,21 @@ const codeOf = async (run: () => Promise<unknown>) => {
 describe("the signed channel", () => {
   it("trims a base written with a trailing slash, which would sign a different address", async () => {
     const provider = stubProvider().on("GET", "/api/v1/sso/me", { body: { data: { ok: true } } });
-    const client = new SsoHttpClient({
-      apiBase: `${API_BASE}/`,
-      clientId: "oauth-test",
-      hmac: stubHmac(),
-      fetch: provider.fetch,
-    });
+    const client = new SsoHttpClient({ apiBase: `${API_BASE}/`, identity: anIdentity(), hmac: stubHmac(provider) });
 
     await client.call("/api/v1/sso/me", "GET");
 
     expect(provider.last()?.url).toBe(`${API_BASE}/api/v1/sso/me`);
   });
 
-  it("signs with the clientId and carries no credential in a header of its own", async () => {
+  // The identity is handed to the transport on EVERY call rather than captured at
+  // construction: it is read from the store at boot, and a client built before that
+  // would sign as nobody.
+  it("hands the identity to the transport on every call", async () => {
     const provider = stubProvider().on("GET", "/api/v1/sso/me", { body: { data: {} } });
     await clientFor(provider).call("/api/v1/sso/me", "GET");
 
-    const headers = provider.last()?.headers ?? {};
-    const names = Object.keys(headers).map((name) => name.toLowerCase());
-
-    expect(names).toContain("x-client-id");
-    expect(names).toContain("x-signature");
-    expect(headers["x-client-id"]).toBe("oauth-test");
+    expect(provider.last()?.clientId).toBe("oauth-test");
   });
 
   it("unwraps the envelope, so no caller has to know it exists", async () => {
@@ -91,37 +84,40 @@ describe("the signed channel", () => {
       expect(await codeOf(() => clientFor(provider).call("/api/v1/sso/me", "GET"))).toBe("MALFORMED_ANSWER");
     });
 
-    it("says NO_CREDENTIAL when nothing has been propagated yet", async () => {
+    it("refuses to sign before the store has been read, and says which call is missing", async () => {
       const provider = stubProvider();
-      const client = clientFor(provider, readOnlyHmac(null));
+      const client = new SsoHttpClient({ apiBase: API_BASE, identity: new SsoEnvironment(), hmac: stubHmac(provider) });
 
-      // Not a bad secret: no secret. It is a real state at boot.
-      expect(await codeOf(() => client.call("/api/v1/sso/me", "GET"))).toBe("NO_CREDENTIAL");
+      // Signing as `undefined` and collecting a 401 naming nothing is the failure
+      // this refusal exists to replace.
+      await expect(client.call("/api/v1/sso/me", "GET")).rejects.toThrow(/await start\(\)/);
       expect(provider.seen).toHaveLength(0);
     });
   });
 
+  // Unsigned on purpose, and through the GLOBAL fetch: a probe that signed would
+  // prove nothing about whether the far side checks signatures.
   describe("proving the base really is the provider", () => {
     it("accepts only a 401, since that is what proves signatures are checked", async () => {
-      const provider = stubProvider().on("PUT", "/api/v1/sso/consumer/config", { status: 401 });
+      const provider = stubProvider().on("PUT", "/api/v1/sso/consumer/config", { status: 401 }).global();
       expect(await clientFor(provider).isProvider()).toBe(true);
     });
 
     it("refuses the login window, which answers 204 to anything it does not know", async () => {
-      const provider = stubProvider().on("PUT", "/api/v1/sso/consumer/config", { status: 204 });
+      const provider = stubProvider().on("PUT", "/api/v1/sso/consumer/config", { status: 204 }).global();
       expect(await clientFor(provider).isProvider()).toBe(false);
     });
 
     it("refuses a base nothing answers on", async () => {
-      const provider = stubProvider().on("PUT", "/api/v1/sso/consumer/config", { fail: true });
+      const provider = stubProvider().on("PUT", "/api/v1/sso/consumer/config", { fail: true }).global();
       expect(await clientFor(provider).isProvider()).toBe(false);
     });
   });
 
   describe("the one unsigned call", () => {
     it("carries the pairing code in a header and no signature at all", async () => {
-      const provider = stubProvider().on("POST", "/api/v1/portal/install", { body: { data: { secret: "s" } } });
-      const client = clientFor(provider, readOnlyHmac(null));
+      const provider = stubProvider().on("POST", "/api/v1/portal/install", { body: { data: { secret: "s" } } }).global();
+      const client = clientFor(provider);
 
       await client.unsigned("/api/v1/portal/install", "POST", { clientId: "oauth-test" }, { "x-install-token": "code" });
 

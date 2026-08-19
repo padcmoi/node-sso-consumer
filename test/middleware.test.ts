@@ -7,7 +7,7 @@ import { SsoMiddleware } from "../src/http/middleware.js";
 import { SsoSessionService } from "../src/session/session.service.js";
 import type { WebRequest, WebResponse } from "../src/http/web.js";
 import type { SsoTokens } from "../src/types.js";
-import { API_BASE, SESSION_PASSWORD, anAccountRead, stubHmac, stubProvider } from "./support.js";
+import { API_BASE, anAccountRead, anIdentity, stubHmac, stubProvider } from "./support.js";
 
 const PORTAL = "https://portal.example.com/";
 
@@ -39,17 +39,14 @@ type Resolution = { me: ReturnType<typeof anAccountRead>; tokens: SsoTokens; use
 
 const withResolve = (resolve: () => Promise<Resolution>) => {
   const provider = stubProvider();
-  const http = new SsoHttpClient({ apiBase: API_BASE, clientId: "oauth-test", hmac: stubHmac(), fetch: provider.fetch });
-  const auth = new SsoAuthService({ http, resource: "infrastructure" });
+  const identity = anIdentity();
+  const http = new SsoHttpClient({ apiBase: API_BASE, identity, hmac: stubHmac(provider) });
+  const auth = new SsoAuthService({ http, identity });
 
   return new SsoMiddleware({
     auth,
-    config: new SsoConfigService({
-      http,
-      frontUrl: "https://sso.example.com",
-      declaration: { redirectUri: "https://app.example.com/cb", dependGlobalRessource: ["infrastructure"] },
-    }),
-    session: new SsoSessionService({ auth, password: SESSION_PASSWORD }),
+    config: new SsoConfigService({ http, frontUrl: "https://sso.example.com", identity }),
+    session: new SsoSessionService({ auth, identity }),
     realtime: null,
     resolve,
     portalUrl: PORTAL,
