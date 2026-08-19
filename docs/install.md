@@ -21,8 +21,8 @@ This is the part worth reading twice, because it is not where it used to be.
 
 An application does not get created by an operator filling in a form, and it does not create itself either. An operator goes to x-core's manager, under _Portails applicatifs → Jetons d'installation → Générer un jeton_, walks four steps, and what the last one hands back is a **pairing code**. That act is the installation:
 
-| Step | Where  | What                                                                        |
-| ---- | ------ | --------------------------------------------------------------------------- |
+| Step | Where  | What                                                                         |
+| ---- | ------ | ---------------------------------------------------------------------------- |
 | 1    | x-core | asks the **infrastructure manager** for a queue and a broker account for it  |
 | 2    | x-core | records the **propagation target** the credential will travel on             |
 | 3    | x-core | records the **SSO consumer**: identity, callback, cancel URL, template, gate |
@@ -43,49 +43,58 @@ The code itself: **one destination, one code**; **it expires**, in hours; **it i
 
 ## Its place in the config
 
-That value goes into the application's config, the way any other secret does:
+The code goes into the application's configuration and STAYS there, for the life of
+the application:
 
 ```ts
 createXcoreBridge({
-  clientId: "oauth-x-facturation",
-  hmac: hmacService.http,
   environment: "prod",
   provider: "https://x-core.example.com:13001/",
-  consumer: {
-    redirectUri: "https://facturation.example.com/api/auth/sso/callback",
-    dependGlobalRessource: ["facturation"],
-  },
-  session: { password: process.env.SESSION_PASSWORD },
-  // Straight from the manager screen. Left in the config for the life of the
-  // application: it is skipped in silence once the credential is in the store.
-  installToken: process.env.SSO_INSTALL_TOKEN,
+  installToken: "7EPkuTlxYY2GcDkylMqWrGezgmXDi0LPnae_DkKofQQ",
+  di: { hmac: { … }, environment: { load, save } },
 });
 ```
 
-`clientId` and `consumer` are still here, and they are not duplicates of what was declared on the console. `clientId` is what this application SIGNS as, on every call, forever. `consumer` is what it re-declares at every boot, which is the ordinary lifecycle of an application already installed. What the console decided is the same thing, once, so that it could exist before the application did - and `install()` refuses a code minted for a different identity rather than letting the two drift apart in silence.
+There is no identity here, no callback URL, no gate and no session password. All of
+it was entered on the console when the code was minted, and the pairing brings it
+back - so there is exactly one place that decides what this application is, and it is
+not this file.
 
-There is no `installQueue`. There used to be, because the queue was named after the clientId and the two charsets disagree. The queue is now named by the infrastructure manager, from the `app` and `env` an operator typed, and this library never has an opinion about it.
+### There is no `install()` to call
 
-### `install()` requires it
+What decides whether the pairing happens is not the presence of the code but the
+`INSTALLED` key of the application's own store:
 
-The code comes off a screen and is read once, and `install()` takes it as its only argument - required:
+| `INSTALLED`   | What the boot does                                                                   |
+| ------------- | ------------------------------------------------------------------------------------ |
+| absent, false | exchanges the code, writes the credential, records everything with `INSTALLED: true` |
+| true          | does not even look at the code, declares, and that is all                            |
 
-```ts
-await xcore.install("7EPkuTlxYY2GcDkylMqWrGezgmXDi0LPnae_DkKofQQ");
+Two things follow, and they are the two that made the old shape fragile.
 
-// Or, when the same call should declare afterwards:
-await xcore.start("7EPkuTlxYY2GcDkylMqWrGezgmXDi0LPnae_DkKofQQ");
-```
+The code **stays in the configuration**. There is nothing to remove after the first
+boot, so nothing to forget to remove. And since it is not read once the key is set, a
+deployment that keeps it does not spend it a second time - it would not open anything
+anyway: x-core deleted the row and revoked the manager key the moment it was spent.
 
-An `install()` that could run with nothing would be a call whose argument reads as decoration, when the code IS what it is about. `start()` is the one that goes looking in the config, because a boot has to be able to run with no code at all - which is the ordinary case of every application already installed. Given both, the argument wins: it is the more recent of the two, and it was typed on purpose.
+The state is **written**, not inferred. The question "is this already installed?" used
+to be answered by looking for a credential in the store, which is indirect evidence: a
+credential that arrived by propagation, with no installation behind it, answered "yes"
+to a question nobody had asked it.
+
+`INSTALLED` is written in the SAME `save` as everything it announces, and never before
+it. Written first, a boot falling between the two would believe itself paired while
+holding none of what that announces - and would never try again, since it no longer
+looks at the code.
 
 ## One call, and there is nothing to do
 
 ```ts
-await xcore.install(code);
+await xcore.start();
 ```
 
-`start()` calls it before declaring, so an ordinary boot needs nothing else. It goes to the `provider` address configured above, and to exactly one route on it:
+It reads the store, pairs if it must, and declares. It goes to the `provider` address
+configured above, and to exactly one route on it:
 
 ```http
 POST https://x-core.example.com:13001/api/v1/portal/install
@@ -97,59 +106,80 @@ content-type: application/json
 
 What it does is small, and smaller than it looks:
 
-| Step | Where        | What                                                            |
-| ---- | ------------ | --------------------------------------------------------------- |
-| 1    | this library | `POST {provider}/api/v1/portal/install`, **unsigned**, **no body** |
-| 2    | x-core       | reads the reservation, answers it whole and deletes the row     |
-| 3    | x-core       | **revokes** the manager key it borrowed: nothing is left for it |
-| 4    | this library | writes the secret into the credential store                     |
-| 5    | this library | declares the consumer, signed, as every later boot does         |
+| Step | Where        | What                                                               |
+| ---- | ------------ | ------------------------------------------------------------------ |
+| 1    | this library | reads `di.environment.load()` and looks at `INSTALLED`             |
+| 2    | this library | `POST {provider}/api/v1/portal/install`, **unsigned**, **no body** |
+| 3    | x-core       | reads the reservation, answers it whole and deletes the row        |
+| 4    | x-core       | **revokes** the manager key it borrowed: nothing is left for it    |
+| 5    | this library | writes the secret through `di.hmac.setSecret`                      |
+| 6    | this library | records the whole answer, `INSTALLED` included, in one `save`      |
+| 7    | this library | declares the consumer, signed, as every later boot does            |
 
-It is the only unsigned call this library ever makes, and it cannot be otherwise: what it collects is the credential a signature would be built from, so requiring one would be requiring the outcome as the input.
+It is the only unsigned call this library ever makes, and it cannot be otherwise: what
+it collects is the credential a signature would be built from, so requiring one would
+be requiring the outcome as the input.
 
-**No body**, and that is deliberate. An application that could still send its own callback URL here would be an application able to point somebody else's installation at itself.
+**No body**, and that is deliberate. An application that could still send its own
+callback URL here would be an application able to point somebody else's installation
+at itself.
 
 ### The queue
 
-It matters beyond this one call: it is what every later **rotation** travels on. Without it the secret would exist in x-core and in this one answer and nowhere else, and nothing could ever replace it.
+It matters beyond this one call: it is what every later **rotation** travels on.
+Without it the secret would exist in x-core and in this one answer and nowhere else,
+and nothing could ever replace it.
 
-The name on the broker is `hmac-<base>.queue`, where `base` is what the infrastructure manager built from the destination and the environment - `x-facturation-prod`, and the login `x_facturation_prod`. None of that is decided here or guessed at: it is read back from what the manager answered, so there is one implementation of the convention rather than two that can disagree.
+The name on the broker is `hmac-<base>.queue`, where `base` is what the infrastructure
+manager built from the destination and the environment - `x-facturation-prod`, and the
+login `x_facturation_prod`. None of that is decided here or guessed at: it is read back
+from what the manager answered, so there is one implementation of the convention rather
+than two that can disagree.
 
-## What comes back
+## What comes back, and where it lands
+
+Nothing is handed back to be transcribed. `start()` records the whole answer through
+`di.environment.save`, and `xcore.environment` reads it out again:
 
 ```ts
-const installed = await xcore.install(code);
-// null when there was nothing to do: a credential is already in the store.
-
-installed?.answer;
+xcore.environment;
 // {
-//   clientId:    "oauth-x-facturation",
-//   secret:      "…43 base64url chars…",   // written into the store for you
-//   redirectUri: "https://facturation.example.com/api/auth/sso/callback",
-//   template:    null,
-//   cancelUri:   null,
-//   propagation: {
-//     amqpQueue:         "x-facturation-prod",
-//     propagationSecret: "…",
-//     brokerQueue:       "hmac-x-facturation-prod.queue",
-//     account: { username: "x_facturation_prod", password: "…", vhost: "hmac-credentials" }
-//   }
+//   INSTALLED:                   true,
+//   SSO_SESSION_PASSWORD:        "…",                     // minted here, never received
+//   SSO_SESSION_COOKIE_NAME:     "sso_oauth_x_facturation",
+//   SSO_CLIENT_ID:               "oauth-x-facturation",
+//   SSO_REDIRECT_URI:            "https://facturation.example.com/api/auth/sso/callback",
+//   SSO_CANCEL_URI:              "https://facturation.example.com/",
+//   SSO_TEMPLATE:                "gestionpratique",
+//   SSO_DEPEND_GLOBAL_RESSOURCE: ["facturation"],
+//
+//   HMAC_AMQP_QUEUE:             "x-facturation-prod",
+//   HMAC_PROPAGATION_SECRET:     "…",
+//   HMAC_AMQP_VHOST:             "hmac-credentials",
+//   HMAC_AMQP_BROKER_QUEUE:      "hmac-x-facturation-prod.queue",
+//
+//   RABBITMQ_PROTOCOL:           "amqps",
+//   RABBITMQ_HOST:               "x-amqp.example.com",
+//   RABBITMQ_PORT:               5671,
+//   RABBITMQ_USER:               "x_facturation_prod",
+//   RABBITMQ_PASSWORD:           "…",
 // }
 ```
 
-`propagation` is handed back rather than acted on: this library holds no broker, and the application that does is the one entitled to wire its own consumer.
+The HMAC credential is NOT among them: it went to `di.hmac.setSecret`, into the store
+that signs with it, and never onto a key/value shelf beside a broker password.
 
-That is the application's whole propagation configuration, and it belongs in its environment:
+The `RABBITMQ_*` and `HMAC_AMQP_*` keys are the application's propagation
+configuration, and wiring the consumer with them is still its own job - **this library
+holds no broker and never will**. What changed is that they are no longer transcribed
+by hand from a screen, which is the gesture people get wrong: left unwired, an
+application signs perfectly on its first boot and then misses every rotation. The
+secret is replaced in x-core, the event is published to a queue nobody reads, and what
+surfaces days later is a `401` on every call with no cause named anywhere.
 
-```dotenv
-HMAC_AMQP_QUEUE=x-facturation-prod
-HMAC_PROPAGATION_SECRET=<propagationSecret>
-HMAC_AMQP_VHOST=hmac-credentials
-RABBITMQ_USER=<account.username>
-RABBITMQ_PASSWORD=<account.password>
-```
-
-**Those five are the application's own job, and nothing here writes them.** `install()` writes the credential and stops there. Left unwired, the application signs perfectly on its first boot and then misses every rotation: the secret is replaced in x-core, the event is published to a queue nobody reads, and what surfaces days later is a 401 on every call with no cause named anywhere.
+The broker's ADDRESS travels with them, and that is deliberate: it belongs to the
+infrastructure and moves with it. An application holding a copy of an old one keeps
+dialling it long after everybody has moved.
 
 `account` is never null now. It was, when x-core created the queue itself: administering a broker user needs the management plugin and an administrator credential, which x-core does not hold and must not. The infrastructure manager holds it, that is its job, and the account it creates is scoped to that one application's queues and nothing else on the vhost. An account able to read the whole propagation vhost could read every other application's rotations, which is every other application's credentials.
 

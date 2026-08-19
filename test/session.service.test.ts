@@ -9,18 +9,27 @@ import {
   SESSION_PASSWORD,
   aSession,
   anAccount,
+  anIdentity,
   stubHmac,
   stubJar,
   stubProvider,
 } from "./support.js";
 
 const SESSION_PATH = "/api/v1/sso/consumer/session";
+/**
+ * Named after the identity rather than fixed, and answered by the provider with the
+ * pairing: two applications served under one host would otherwise both write
+ * `sso_session` and sign each other out on every navigation, silently.
+ */
+const COOKIE = "sso_oauth_test";
+const STATE = `${COOKIE}_state`;
 const ME_PATH = "/api/v1/sso/me";
 
 const serviceFor = (provider: ReturnType<typeof stubProvider>) => {
-  const http = new SsoHttpClient({ apiBase: API_BASE, clientId: "oauth-test", hmac: stubHmac(), fetch: provider.fetch });
-  const auth = new SsoAuthService({ http, resource: "infrastructure" });
-  return new SsoSessionService({ auth, password: SESSION_PASSWORD });
+  const identity = anIdentity();
+  const http = new SsoHttpClient({ apiBase: API_BASE, identity, hmac: stubHmac(provider) });
+  const auth = new SsoAuthService({ http, identity });
+  return new SsoSessionService({ auth, identity });
 };
 
 const sealedSession = (suffix = "1") =>
@@ -42,7 +51,7 @@ describe("starting a sign-in", () => {
     });
 
     const [written] = jar.writes;
-    expect(written.name).toBe("sso_state");
+    expect(written.name).toBe(STATE);
     expect(url).toContain(written.value);
     expect(written.options.httpOnly).toBe(true);
     // `lax` and not `strict`: the cookie has to survive the redirect back from the
@@ -54,19 +63,19 @@ describe("starting a sign-in", () => {
 describe("coming back from the login window", () => {
   it("trades the code and seals the pair", async () => {
     const provider = stubProvider().on("POST", SESSION_PATH, { body: { data: aSession() } });
-    const jar = stubJar({ sso_state: "the-state" });
+    const jar = stubJar({ [STATE]: "the-state" });
 
     const opened = await serviceFor(provider).complete(jar, { code: "the-code", state: "the-state" });
 
     expect(opened?.accessToken).toBe("access-1");
-    expect(jar.held.get("sso_session")).toBeDefined();
+    expect(jar.held.get(COOKIE)).toBeDefined();
     // Consumed whatever happens: a state read twice is a state replayed.
-    expect(jar.cleared).toContain("sso_state");
+    expect(jar.cleared).toContain(STATE);
   });
 
   it("refuses when the state did not come back with the browser", async () => {
     const provider = stubProvider();
-    const jar = stubJar({ sso_state: "the-state" });
+    const jar = stubJar({ [STATE]: "the-state" });
 
     expect(await serviceFor(provider).complete(jar, { code: "the-code", state: "another-state" })).toBeNull();
     expect(provider.seen).toHaveLength(0);
@@ -78,14 +87,14 @@ describe("coming back from the login window", () => {
 
   it("answers null on a code already spent, which is what refreshing the callback does", async () => {
     const provider = stubProvider().on("POST", SESSION_PATH, { status: 401 });
-    const jar = stubJar({ sso_state: "the-state" });
+    const jar = stubJar({ [STATE]: "the-state" });
 
     expect(await serviceFor(provider).complete(jar, { code: "the-code", state: "the-state" })).toBeNull();
   });
 
   it("raises when the provider is unreachable, which is not a sign-in to start again", async () => {
     const provider = stubProvider().on("POST", SESSION_PATH, { fail: true });
-    const jar = stubJar({ sso_state: "the-state" });
+    const jar = stubJar({ [STATE]: "the-state" });
 
     await expect(serviceFor(provider).complete(jar, { code: "the-code", state: "the-state" })).rejects.toMatchObject({
       code: "UNREACHABLE",
@@ -101,7 +110,7 @@ describe("resolving a request", () => {
   });
 
   it("answers null on a cookie sealed with another password", async () => {
-    const jar = stubJar({ sso_session: seal(OTHER_SESSION_PASSWORD, { userId: "user-1" }) });
+    const jar = stubJar({ [COOKIE]: seal(OTHER_SESSION_PASSWORD, { userId: "user-1" }) });
     expect(await serviceFor(stubProvider()).resolve(jar)).toBeNull();
   });
 
@@ -110,35 +119,35 @@ describe("resolving a request", () => {
       .on("GET", ME_PATH, { status: 401 })
       .on("PUT", SESSION_PATH, { body: { data: aSession("2") } })
       .on("GET", ME_PATH, { body: { data: anAccount() } });
-    const jar = stubJar({ sso_session: sealedSession() });
+    const jar = stubJar({ [COOKIE]: sealedSession() });
 
     const resolved = await serviceFor(provider).resolve(jar);
 
     // Rotation spends the token that was presented: without the re-seal, the
     // session dies on the very next call.
     expect(resolved?.tokens.accessToken).toBe("access-2");
-    expect(jar.writes.some((entry) => entry.name === "sso_session")).toBe(true);
+    expect(jar.writes.some((entry) => entry.name === COOKIE)).toBe(true);
   });
 
   it("clears the cookie when the session is over", async () => {
     const provider = stubProvider().on("GET", ME_PATH, { status: 401 }).on("PUT", SESSION_PATH, { status: 401 });
-    const jar = stubJar({ sso_session: sealedSession() });
+    const jar = stubJar({ [COOKIE]: sealedSession() });
 
     expect(await serviceFor(provider).resolve(jar)).toBeNull();
-    expect(jar.cleared).toContain("sso_session");
+    expect(jar.cleared).toContain(COOKIE);
   });
 
   it("leaves the cookie alone when the provider is unreachable", async () => {
     const provider = stubProvider().on("GET", ME_PATH, { fail: true });
-    const jar = stubJar({ sso_session: sealedSession() });
+    const jar = stubJar({ [COOKIE]: sealedSession() });
 
     await expect(serviceFor(provider).resolve(jar)).rejects.toMatchObject({ code: "UNREACHABLE" });
-    expect(jar.cleared).not.toContain("sso_session");
+    expect(jar.cleared).not.toContain(COOKIE);
   });
 
   it("keeps nothing personal in the cookie", async () => {
     const provider = stubProvider().on("POST", SESSION_PATH, { body: { data: aSession() } });
-    const jar = stubJar({ sso_state: "the-state" });
+    const jar = stubJar({ [STATE]: "the-state" });
 
     await serviceFor(provider).complete(jar, { code: "the-code", state: "the-state" });
     const held = serviceFor(provider).read(jar);
@@ -150,22 +159,22 @@ describe("resolving a request", () => {
 describe("ending a session", () => {
   it("closes this application's session and clears its cookie", async () => {
     const provider = stubProvider().on("DELETE", SESSION_PATH, { status: 204 });
-    const jar = stubJar({ sso_session: sealedSession() });
+    const jar = stubJar({ [COOKIE]: sealedSession() });
 
     await serviceFor(provider).end(jar);
 
     expect(provider.calls("DELETE", SESSION_PATH)).toHaveLength(1);
-    expect(jar.cleared).toContain("sso_session");
+    expect(jar.cleared).toContain(COOKIE);
   });
 
   it("clears the cookie even when the provider refuses the call", async () => {
     const provider = stubProvider().on("DELETE", SESSION_PATH, { status: 500 });
-    const jar = stubJar({ sso_session: sealedSession() });
+    const jar = stubJar({ [COOKIE]: sealedSession() });
 
     // A reader who asked to sign out must be signed out here whatever the far side
     // answers: the alternative is a browser still holding a session it was told
     // was closed.
     await serviceFor(provider).end(jar);
-    expect(jar.cleared).toContain("sso_session");
+    expect(jar.cleared).toContain(COOKIE);
   });
 });

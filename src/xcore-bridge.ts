@@ -1,99 +1,111 @@
 import { SsoAuthService } from "./auth.service.js";
+import { SsoError } from "./errors.js";
 import { SsoConfigService } from "./config.service.js";
 import { clientContextOf, jarOf } from "./http/web.js";
 import { SsoMiddleware } from "./http/middleware.js";
 import { SsoRealtimeBridge } from "./realtime/bridge.js";
 import { SsoRealtimeClient } from "./realtime/realtime.client.js";
 import type { TicketStore } from "./realtime/tickets.js";
-import { SsoHttpClient, type FetchLike, type SsoHmacRuntime } from "./http.js";
+import { SsoHttpClient, type XcoreHmacInjection } from "./http.js";
+import { ENV, SsoEnvironment, mintSessionPassword, type XcoreEnvironmentStore } from "./environment.js";
 import type { WebRequest, WebResponse } from "./http/web.js";
 import { SsoLiveAccounts } from "./session/live-accounts.js";
 import { SsoSessionService } from "./session/session.service.js";
 import { providerFor, type ProviderAddresses, type ProviderEnvironment, type ProviderOverride } from "./providers.js";
-import type { SsoConsumerDeclaration, SsoLogger, SsoMe } from "./types.js";
+import type { SsoLogger, SsoMe } from "./types.js";
 
+/**
+ * Everything this application LENDS to the library, in one key and nowhere else.
+ *
+ * It is short, and that is the main fact about this library: it persists nothing. No
+ * table, no migration, no schema - an application installing it creates none. The
+ * session is a sealed cookie at the reader's end; the account, the profile and the
+ * rights are asked of x-core on EVERY request and never cached, which is what makes
+ * a permission revoked elsewhere apply here at once rather than at the next expiry
+ * of something. The socket ticket lives thirty seconds in memory.
+ *
+ * What is left comes down to one thing: signing. And that is not to be written
+ * either - `@naskot/node-hmac-auth` already signs for the whole application, and its
+ * transport is handed over as it is. No secret ever crosses this library.
+ */
+export interface XcoreInjection {
+  hmac: XcoreHmacInjection;
+  environment: XcoreEnvironmentStore;
+  /**
+   * What the provider pushed, for whatever this application keeps that the library
+   * cannot know about: its own store, its own sockets, a cache of its own. The reads
+   * are already reactive without this.
+   */
+  onAccount?(userId: string, me: SsoMe): void;
+  /** The session is over: empty whatever was kept for this account. */
+  onSignedOut?(userId: string): void;
+}
+
+/**
+ * What this application DECIDES, and what it LENDS. Nothing else.
+ *
+ * What it IS towards the provider is not here: identity, callback URL, cancel URL,
+ * template and gate are entered on the console, at the "application" step of the
+ * form that mints the pairing code, and the pairing brings them back. There is
+ * therefore one place that decides it, and this file is not it.
+ *
+ * Nothing comes from a `.env` either - not even the password that seals the cookie.
+ */
 export interface XcoreBridgeOptions {
   /**
-   * This application's SSO identity.
-   *
-   * There is no client_id/client_secret pair in this protocol: the HMAC clientId
-   * IS the identity, and a code minted for it can only be redeemed by a caller
-   * signing as it. Written down rather than configured, for the same reason the
-   * API is: an operator changing it would only be renaming this application into a
-   * consumer that does not exist.
-   */
-  clientId: string;
-  /**
-   * The HMAC runtime of the service that owns this application's credential store.
-   * Injected whole: this library signs with it and holds nothing of its own.
-   */
-  hmac: SsoHmacRuntime;
-  /**
-   * Which set of provider addresses to run against. They are written down rather
-   * than configured: they vary per environment and not per deployment, and the one
+   * Which set of provider addresses to run against. Written down rather than
+   * configured: they vary per environment and not per deployment, and the one
    * mistake they invite - the login window instead of the API - fails silently.
-   *
-   * Naming `prod` while deploying to dev is legitimate and is how an application
-   * deliberately shares one account list across both of its own environments.
    */
   environment: ProviderEnvironment;
+
   /**
-   * The API, written down beside the code that uses it. A bare string is enough;
-   * an object overrides the other three addresses too, for another ecosystem.
-   *
-   * REQUIRED, although the environment above already carries a default, and
-   * deliberately: this is the one address whose mistake is silent, so it is the
-   * one an integrator has to have looked at and typed. The rest can be inherited.
+   * The API, WITH its port. Required although the environment above already carries
+   * a default, and deliberately: the login window lives on the same names without
+   * one and answers `204` to anything it does not know, so an application pointed at
+   * it declares itself "successfully" at every boot while nothing exists on the
+   * other side. It is the one address whose mistake is silent, so it is the one an
+   * integrator has to have looked at and typed.
    */
   provider: ProviderOverride;
+
   /**
-   * How this application plugs in, re-declared at every boot.
+   * The pairing code minted on the console, and the ONE value an operator copies out
+   * of the whole flow.
    *
-   * Named for what the protocol names it: the row is `sso_consumer`, the route is
-   * `PUT /sso/consumer/config`, and what is written here IS that consumer.
-   */
-  consumer: SsoConsumerDeclaration;
-  session: {
-    /** 32 characters or more. Changing it signs everyone out. */
-    password: string;
-    cookie?: SsoSessionServiceCookie;
-  };
-  /**
-   * The pairing code that installs this application, once.
+   * It stays here for the life of the application, and that is not an oversight:
+   * what decides whether the installation happens is not its presence but the
+   * `INSTALLED` key of `di.environment`. Until that reads true the boot exchanges it;
+   * once it does, the boot does not even look at it. The code is therefore never
+   * spent twice, there is nothing to remove from a configuration afterwards - the
+   * gesture people forget - and nothing to remember to call on the right boot.
    *
-   * Given it, `start()` needs nothing else: it redeems the code, writes the
-   * credential it brings back into the store, and declares the configuration - so
-   * an application goes from nothing to signing in the time of one boot, with no
-   * operator step in between. Absent, the credential is expected to be there
-   * already, delivered over the broker as it is for an application already paired.
-   *
-   * Nothing is created by redeeming it. The queue, the broker account, the SSO
-   * consumer and the credential were all built when the code was MINTED, on
-   * x-core's console, in front of whoever minted it - so a boot either finds its
-   * credential waiting or finds nothing at all, and never fails half way.
-   *
-   * `install(code)` REQUIRES one and reads nothing from here: it is the call that
-   * does the installing, and one able to run without a code would be a call whose
-   * argument reads as decoration. This option is what `start()` falls back on.
+   * Only needed until the application is paired. One that already is may drop it.
    */
   installToken?: string;
+
+  session?: {
+    cookie?: SsoSessionServiceCookie;
+  };
+
   routes?: {
     basePath?: string;
     afterLogin?: string;
   };
+
   realtime?: {
     /** The path the BROWSER dials on this application's own host. */
     path?: string;
     /** Where a ticket waits. In memory by default: fine for one process. */
     tickets?: TicketStore;
   };
+
   /**
    * Follow every account this application holds a session for, over the socket.
    *
-   * On by default, and it is what makes the reads below reactive: a permission
-   * granted or revoked from anywhere lands here within seconds, instead of at the
-   * reader's next navigation. Off, every read asks the provider again - correct,
-   * chatty, and late.
+   * On by default, and it is what makes the reads reactive: a permission granted or
+   * revoked from anywhere lands here within seconds, instead of at the reader's next
+   * navigation. Off, every read asks the provider again - correct, chatty, and late.
    *
    * `staleAfterMs` is the ceiling on how long a followed account is served without
    * asking anyway: the socket says what CHANGED, and this is what re-proves the
@@ -102,33 +114,10 @@ export interface XcoreBridgeOptions {
   live?: {
     enabled?: boolean;
     staleAfterMs?: number;
-    /**
-     * What the provider pushed, as it arrives, for whoever else has to hear it:
-     * the application's own store, the browser sockets it holds, a cache it keeps.
-     *
-     * The reads below are already reactive without this - it is for what this
-     * library cannot know about.
-     */
-    onAccount?(userId: string, me: SsoMe): void;
-    /** The session is over: empty whatever was kept for this account. */
-    onSignedOut?(userId: string): void;
   };
-  /**
-   * What runs once per DEPLOYMENT rather than once per process.
-   *
-   * Declaring is idempotent, so several workers declaring the same thing at boot
-   * is noise rather than a fault - but it is one call per worker per boot against
-   * a provider with better things to do. Given an election, only the worker that
-   * wins it declares and the others skip straight past.
-   *
-   * Pairing is elected too, and there it is not noise: the code is single-use, so
-   * a second worker's attempt is refused and its boot fails on a credential the
-   * first one has already written.
-   */
-  bootstrap?: { elect?(): boolean | Promise<boolean> };
+
+  di: XcoreInjection;
   logger?: SsoLogger;
-  /** Injectable so a test drives everything without a network. */
-  fetch?: FetchLike;
   timeoutMs?: number;
   retry?: { attempts?: number; delayMs?: number };
 }
@@ -175,15 +164,23 @@ export class XcoreBridge {
   readonly live: SsoLiveAccounts | null;
   /** When each followed account was last proven against the provider. */
   private readonly provenAt = new Map<string, number>();
+  /**
+   * What the application's store said, read once by `start()` and held after.
+   *
+   * Everything above reads THROUGH it rather than being handed values at
+   * construction: at construction there is nothing to hand - the identity, the
+   * declaration and the sealing password all arrive from the store, and the store is
+   * read inside `start()`.
+   */
+  private readonly identity = new SsoEnvironment();
 
   constructor(private readonly options: XcoreBridgeOptions) {
     this.provider = providerFor(options.environment, options.provider);
 
     this.http = new SsoHttpClient({
       apiBase: this.provider.apiBase,
-      clientId: options.clientId,
-      hmac: options.hmac,
-      fetch: options.fetch,
+      identity: this.identity,
+      hmac: options.di.hmac,
       timeoutMs: options.timeoutMs,
       logger: options.logger,
     });
@@ -191,7 +188,7 @@ export class XcoreBridge {
     this.config = new SsoConfigService({
       http: this.http,
       frontUrl: this.provider.frontUrl,
-      declaration: options.consumer,
+      identity: this.identity,
       retry: options.retry,
       logger: options.logger,
     });
@@ -201,14 +198,14 @@ export class XcoreBridge {
     // provider recomputes that per account and sends it back with every `me`.
     this.auth = new SsoAuthService({
       http: this.http,
-      resource: options.consumer.dependGlobalRessource[0],
+      identity: this.identity,
       logger: options.logger,
     });
 
     this.sessions = new SsoSessionService({
       auth: this.auth,
-      password: options.session.password,
-      cookie: options.session.cookie,
+      identity: this.identity,
+      cookie: options.session?.cookie,
       logger: options.logger,
     });
 
@@ -220,12 +217,12 @@ export class XcoreBridge {
             realtimeUrl: this.provider.realtimeUrl,
             // Called through the options object rather than handed over as a
             // reference, so a listener kept on its own `this` still finds it.
-            onAccount: (userId, me) => options.live?.onAccount?.(userId, me),
+            onAccount: (userId, me) => options.di.onAccount?.(userId, me),
             onSignedOut: (userId) => {
               // Proven-at is cleared with the account, or a later session for the
               // same reader would be served from a stamp nothing stands behind.
               this.provenAt.delete(userId);
-              options.live?.onSignedOut?.(userId);
+              options.di.onSignedOut?.(userId);
             },
             logger: options.logger,
           });
@@ -386,87 +383,106 @@ export class XcoreBridge {
   }
 
   /**
-   * Everything a boot owes: pair if it must, then declare.
+   * Everything a boot owes: read the environment, pair if it must, then declare.
    *
-   * With a pairing code and an empty store, this is the whole installation - the
-   * code is redeemed, the credential it brings back is written in, and the
-   * configuration is declared with it. Without one, or with a credential already
-   * there, it is just the declaration, which is idempotent and belongs on every
-   * boot anyway.
+   * Three steps, and the order is the whole of it.
    *
-   * Call it once everything else is up, and await it before serving: an
-   * application that failed to declare itself boots perfectly and refuses every
-   * sign-in afterwards.
+   * READ FIRST. `di.environment.load()` is what says whether this application is
+   * paired, what identity it signs as, and what password opens its cookies. Nothing
+   * above can act before it: an application that signed before reading would sign as
+   * nobody and collect a `401` naming nothing.
    *
-   * The pairing code can be given here instead of in the config, and it is handed
-   * straight to `install()`: an application reading it from a prompt or a secret
-   * store has one call to make rather than two.
+   * PAIR ONLY IF `INSTALLED` SAYS SO. Not "if a code was given" - the code stays in
+   * the configuration for the life of the application, and it is this key that
+   * decides. Once it reads true the code is not looked at again, so a deployment
+   * that keeps it does not spend it a second time and there is nothing to remember
+   * to remove.
+   *
+   * DECLARE ALWAYS. Idempotent, and it belongs on every boot: it is what keeps the
+   * callback, the login screen and the gate in step with what the console holds.
+   *
+   * Await it before serving. An application that failed to declare itself boots
+   * perfectly and refuses every sign-in afterwards, which is the longest failure to
+   * trace back.
    */
-  async start(installToken?: string) {
-    // The election is asked ONCE and covers both halves. Asking twice would let a
-    // worker lose the pairing and win the declaration, which is a worker declaring
-    // with a credential it has not got yet.
-    const elected = (await this.options.bootstrap?.elect?.()) ?? true;
-    if (!elected) {
-      this.options.logger?.info?.("[sso] another worker is pairing and declaring; skipping");
-      return null;
-    }
-
-    // The config is read HERE and not in `install()`: a boot with no code at all is
-    // the ordinary case - every application already installed - and it must not
-    // read as a failure.
-    const token = installToken?.trim() || this.options.installToken?.trim();
-    if (token) await this.install(token);
+  async start() {
+    await this.load();
+    if (!this.identity.installed) await this.pair();
+    await this.ensureSessionPassword();
 
     return this.declare();
   }
 
   /**
-   * The whole installation, from a code typed into a config to an application the
-   * provider knows about.
+   * Read the store and hold what it said. Idempotent, and safe on every worker.
    *
-   * ONE call, and it CREATES NOTHING: the code goes to the route that exists for
-   * it, and what comes back is the AMQP queue, the broker account and the
-   * credential that were all made when the code was minted on the provider's
-   * console. The row over there is deleted in the same breath, which is what makes
-   * the code single-use. What comes back is written into the credential store here
-   * - and from that moment this application signs for itself, exactly as every
-   * application already installed does.
-   *
-   * The code is REQUIRED here, and it is the only argument. It comes off a screen,
-   * it is read once, and it is what the whole call is about - a version of this
-   * taking nothing and reaching into the config for it reads as if it could do
-   * something without one, which it cannot. `start()` is the one that goes looking
-   * in the config, because a boot has to be able to run with no code at all.
-   *
-   * Skipped in silence only when there is nothing left to do: a credential already
-   * in the store. Pairing twice is not a repair - the code is single-use and the
-   * second attempt is refused - so that check is what makes `start()` safe to leave
-   * in place forever, in the config, for the life of the application.
+   * Its own method because a deployment running several processes elects ONE of them
+   * to declare - PM2's instance 0, typically - and the others still have to know
+   * what they sign as. Election belongs outside this library: it knows nothing of
+   * PM2, of how many workers there are, or of how they are numbered.
    */
-  async install(installToken: string) {
-    const token = installToken?.trim();
-    // Loud rather than silent: something called this on purpose, with a value it
-    // believed in. An empty one is an environment variable that never got set, and
-    // returning `null` here would look like "already installed".
-    if (!token) throw new Error("install() needs the pairing code minted on x-core's manager: it was given an empty one");
+  async load() {
+    this.identity.hydrate(await this.options.di.environment.load());
+    return this.identity;
+  }
 
-    const held = await this.options.hmac.clients.getSecretHash(this.options.clientId);
-    if (held) return null;
-
-    const clients = this.options.hmac.clients;
-    if (!clients.setSecret) {
-      throw new Error("An install token was given but this HMAC runtime cannot write a credential: it can only receive one");
+  /**
+   * Exchange the pairing code, write the credential, and record the whole of it.
+   *
+   * NOTHING IS CREATED by this call. The queue, the broker account, the SSO consumer
+   * and the HMAC credential were all made when the code was MINTED, on the console,
+   * in front of whoever minted it. This collects them, x-core deletes its row in the
+   * same breath and revokes the infrastructure manager key it had borrowed.
+   *
+   * `INSTALLED` is written in the SAME `save` as everything else and never before
+   * it. Written first, a boot falling between the two would believe itself paired
+   * while holding none of what that announces - and would never try again, since it
+   * no longer looks at the code.
+   */
+  private async pair() {
+    const token = this.options.installToken?.trim();
+    if (!token) {
+      throw new SsoError(
+        "NO_CREDENTIAL",
+        "This application is not paired and carries no install token: mint one on x-core's console, under Portails applicatifs, and put it in `installToken`"
+      );
     }
 
-    const paired = await this.config.pair({ token, clientId: this.options.clientId });
-    // Called on its own object, so a runtime keeping state on `this` still works.
-    await clients.setSecret(paired.clientId, paired.secret);
-    this.options.logger?.info?.(`[sso] installed as ${paired.clientId}; the install token is spent`);
-    // `answer` carries the queue and the secret its propagation consumer verifies
-    // inbound events with. Handed back rather than acted on: this library holds no
-    // broker, and the application that does is the one entitled to wire it.
+    const paired = await this.config.pair({ token });
+    // Written into the store that signs with it, and nowhere else: a credential has
+    // no business sitting in a key/value shelf beside a broker password.
+    await this.options.di.hmac.setSecret(paired.clientId, paired.secret);
+
+    const values = {
+      ...paired.environment,
+      // Minted here and never received: two applications sharing this password could
+      // open each other's cookies, while each holds its own row on the provider,
+      // revocable separately.
+      [ENV.SSO_SESSION_PASSWORD]: this.identity.all[ENV.SSO_SESSION_PASSWORD] ?? mintSessionPassword(),
+      [ENV.INSTALLED]: true,
+    };
+
+    await this.options.di.environment.save(values);
+    this.identity.hydrate({ ...this.identity.all, ...values });
+    this.options.logger?.info?.(`[sso] paired as ${paired.clientId}; the install token is spent`);
+
     return paired;
+  }
+
+  /**
+   * A sealing password, minted if the store holds none.
+   *
+   * Deleting that key is how an operator signs everyone out at once - every existing
+   * cookie stops opening - so a boot finding it gone mints a new one rather than
+   * refusing to start. It is a tool, not a fault.
+   */
+  private async ensureSessionPassword() {
+    if (typeof this.identity.all[ENV.SSO_SESSION_PASSWORD] === "string") return;
+
+    const password = mintSessionPassword();
+    await this.options.di.environment.save({ [ENV.SSO_SESSION_PASSWORD]: password });
+    this.identity.hydrate({ ...this.identity.all, [ENV.SSO_SESSION_PASSWORD]: password });
+    this.options.logger?.warn?.("[sso] no session password in the store: a new one was minted, every existing cookie is now void");
   }
 
   /**
@@ -485,9 +501,9 @@ export class XcoreBridge {
     this.provenAt.clear();
   }
 
-  /** Redeem a pairing code, once, to bring this application into existence. */
-  pair(params: Parameters<SsoConfigService["pair"]>[0]) {
-    return this.config.pair(params);
+  /** Everything this application holds in its own store, for whoever wires the broker. */
+  get environment() {
+    return this.identity.all;
   }
 }
 

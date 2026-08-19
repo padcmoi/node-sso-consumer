@@ -1,4 +1,5 @@
 import { SsoError } from "./errors.js";
+import type { SsoEnvironment } from "./environment.js";
 import type { SsoHttpClient } from "./http.js";
 import { readMe, readSession } from "./parse.js";
 import { createPermissionReader, type PermissionReader } from "./permissions.js";
@@ -11,10 +12,13 @@ const REALTIME_PATH = "/realtime";
 export interface SsoAuthServiceOptions {
   http: SsoHttpClient;
   /**
-   * The global ACL resource this app IS. What it may DO is not declared here: the
-   * provider recomputes it per account and sends it with every `me`.
+   * Where the global ACL resource this app IS comes from: the first entry of the
+   * gate it declares, read back from its own store rather than named a second time.
+   *
+   * What it may DO is never declared anywhere - the provider recomputes that per
+   * account and sends it with every `me`.
    */
-  resource?: string;
+  identity: SsoEnvironment;
   logger?: SsoLogger;
 }
 
@@ -41,11 +45,10 @@ export interface SsoResolution {
 export class SsoAuthService {
   /** Rotations in flight, keyed by the refresh token they spend. */
   private readonly rotating = new Map<string, Promise<SsoSession>>();
-  private readonly reader: PermissionReader | null;
+  /** Built on first use: the resource is read from the store, which is filled at boot. */
+  private reader: PermissionReader | null = null;
 
-  constructor(private readonly options: SsoAuthServiceOptions) {
-    this.reader = options.resource ? createPermissionReader(options.resource) : null;
-  }
+  constructor(private readonly options: SsoAuthServiceOptions) {}
 
   /**
    * Open the session by redeeming the authorization code.
@@ -189,9 +192,14 @@ export class SsoAuthService {
   // route re-asks here, against the answer it just received.
 
   get permissions() {
-    if (!this.reader) {
-      throw new SsoError("FORBIDDEN", "This app names no resource, so it holds no permission vocabulary of its own");
+    if (this.reader) return this.reader;
+
+    const resource = this.options.identity.resource;
+    if (!resource) {
+      throw new SsoError("FORBIDDEN", "This app declares no gate, so it holds no permission vocabulary of its own");
     }
+
+    this.reader = createPermissionReader(resource);
     return this.reader;
   }
 

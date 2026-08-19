@@ -6,47 +6,131 @@ Nitro is where this library's shape pays off: there is no `app.use(middleware)` 
 
 Five files. Nothing about the SSO lives outside them.
 
+> **It replaces the whole local authentication, not part of it.** No user table, no
+> password column, no reset flow, no session table, no permission table, no login
+> page. The account, the profile and the rights are asked of x-core on every request
+> and never cached - which is what makes a revocation elsewhere land on the very next
+> call. The cookie carries the account id and the token pair and nothing else. See
+> [what it replaces](../README.md#it-replaces-the-whole-local-authentication).
+
 ## 1) The service
 
 `server/utils/xcore.ts`
 
-Under `server/utils/`, so Nitro auto-imports it and every handler reaches the same instance. Built once at module scope: several instances would each open their own sockets for the same accounts.
+Under `server/utils/`, so Nitro auto-imports it and every handler reaches the same
+instance. Built once at module scope: several instances would each open their own
+sockets for the same accounts.
+
+What this application DECIDES is short, and what it LENDS is shorter. What it IS
+towards x-core - identity, callback URL, cancel URL, template, gate - is entered on
+the console when the pairing code is minted, and the pairing brings it back. There is
+one place that decides it, and this file is not it.
+
+Nothing comes from a `.env` either, not even the password that seals the cookie: it
+is minted at the first boot and kept in the application's own store.
+
+**One value is copied by hand**, from the screen that mints the code, and it stays
+here for the life of the application:
 
 ```ts
-import { createXcoreBridge, type SsoHmacRuntime } from "@naskot/node-sso-consumer";
+installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o";
+```
+
+There is no `install()` to call. What decides whether the pairing happens is not the
+presence of that code but the `INSTALLED` key of `di.environment`: until it reads
+true the boot exchanges the code, and once it does the boot never looks at it again.
+So there is nothing to remove from a configuration afterwards, and nothing to
+remember to call on the right boot.
+
+```ts
+import { signedHttpFetch, buildHttpSignedHeaders } from "@naskot/node-hmac-auth";
+import { createXcoreBridge } from "@naskot/node-sso-consumer";
 import { hmacRuntime } from "./hmac";
+import { settings } from "./settings";
+import { accountStore } from "./account-store";
 
-const DOMAIN = "console.example.com";
-
-// `useRuntimeConfig()` is Nitro's env, read HERE and handed over as plain values.
-// Nothing inside the library reads an environment.
-const config = useRuntimeConfig();
+const CLIENT_ID = () => xcore.environment.SSO_CLIENT_ID as string;
 
 export const xcore = createXcoreBridge({
-  clientId: "oauth-console",
-  // The HMAC runtime of the module that owns this app's credential store,
-  // injected whole: this library signs with it and holds no secret of its own.
-  hmac: hmacRuntime satisfies SsoHmacRuntime,
   environment: "prod",
   // WITH its port: the login window lives on the same name without one and answers
   // 204 to anything it does not know, so an app pointed at it declares itself
   // "successfully" at every boot while nothing exists on the other side.
   provider: "https://x-core.example.com:13001/",
-  consumer: {
-    redirectUri: `https://${DOMAIN}/api/auth/sso/callback`,
-    cancelUri: `https://${DOMAIN}/`,
-    template: "gestionpratique",
-    // An ARRAY, sent whether it is empty or not.
-    dependGlobalRessource: ["console"],
+  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+
+  session: {
+    // No password and no name: the first is minted at the first boot, the second is
+    // derived from the identity by x-core. What is left is the shape of the cookie.
+    cookie: { secure: true, sameSite: "lax", maxAgeDays: 30 },
   },
-  session: { password: config.sessionPassword },
-  // Minted by the portal, single use, one day of life. Only the first boot spends
-  // it; afterwards the credential is already in the store.
-  installToken: config.ssoInstallToken,
   routes: { basePath: "/api/auth", afterLogin: "/" },
+  realtime: { path: "/_ws/realtime" },
+  live: { enabled: true, staleAfterMs: 5 * 60 * 1000 },
+
+  di: {
+    hmac: {
+      // `init.clientId` is set by the library - it holds the identity, from the
+      // pairing or from the store - so this adds a secret and nothing else.
+      fetch: async (url, init) => signedHttpFetch(url, { ...init, secret: await hmacRuntime.secretHash(), secretIsHashed: true }),
+      // An upgrade is not a fetch: the provider verifies it before a socket exists,
+      // so what the dialer needs is the headers themselves.
+      signHeaders: async (request) => {
+        const headers: Record<string, string> = {};
+        buildHttpSignedHeaders({
+          ...request,
+          clientId: CLIENT_ID(),
+          secret: await hmacRuntime.secretHash(),
+          secretIsHashed: true,
+        }).forEach((value, key) => (headers[key] = value));
+        return headers;
+      },
+      setSecret: (clientId, secret) => hmacRuntime.clients.setSecret(clientId, secret),
+    },
+    environment: {
+      load: () => settings.all(),
+      save: (values) => settings.upsertAll(values),
+    },
+    onAccount: (userId, me) => accountStore.replace(userId, me),
+    onSignedOut: (userId) => accountStore.clear(userId),
+  },
+
   logger: console,
+  timeoutMs: 10_000,
+  retry: { attempts: 5, delayMs: 3_000 },
 });
 ```
+
+| What it lends              | Receives                       | Returns         | Called when                   |
+| -------------------------- | ------------------------------ | --------------- | ----------------------------- |
+| `hmac.fetch(url, init)`    | a request, `init.clientId` set | the HTTP answer | every call to the provider    |
+| `hmac.signHeaders(req)`    | a request to sign              | the headers     | the realtime handshake        |
+| `hmac.setSecret(id, s)`    | the identity and the secret    | nothing         | at pairing, once              |
+| `environment.load()`       | nothing                        | every key       | at boot, first                |
+| `environment.save(values)` | the keys to write              | nothing         | at pairing, and on a rotation |
+| `onAccount(userId, me)`    | what the provider pushed       | nothing         | a permission changes          |
+| `onSignedOut(userId)`      | the account                    | nothing         | the session is over           |
+
+The signing is not written here either: `signedHttpFetch` and `buildHttpSignedHeaders`
+come from `@naskot/node-hmac-auth`, the same code that signs everywhere else in the
+ecosystem, so there is no second implementation of the protocol to drift from the one
+that verifies in front. **No secret ever crosses this library.**
+
+The hash is re-read on EVERY call rather than captured at boot: the credential is
+replaced by propagation, and a client built once would sign with the old one until the
+next restart - which surfaces as a `401` on everything, with nothing naming the cause.
+
+`environment` holds seventeen keys and this library writes them: `INSTALLED`,
+`SSO_SESSION_PASSWORD`, `SSO_SESSION_COOKIE_NAME`, `SSO_CLIENT_ID`, `SSO_REDIRECT_URI`,
+`SSO_CANCEL_URI`, `SSO_TEMPLATE`, `SSO_DEPEND_GLOBAL_RESSOURCE`, `HMAC_AMQP_QUEUE`,
+`HMAC_PROPAGATION_SECRET`, `HMAC_AMQP_VHOST`, `HMAC_AMQP_BROKER_QUEUE`,
+`RABBITMQ_PROTOCOL`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`,
+`RABBITMQ_PASSWORD`. The values are JSON, not strings - a gate is a list, a port is a
+number - and `save` is an UPSERT: it writes the keys it is given and leaves the others
+alone.
+
+`xcore.environment` hands the whole of it back, which is what wires the propagation
+consumer to the broker. This library holds no broker and never will.
 
 ## 2) The routes
 
@@ -139,8 +223,8 @@ A Nitro plugin is where the raw HTTP server is reachable, which is what the real
 
 ```ts
 export default defineNitroPlugin(async (nitro) => {
-  // Pair if it must, then declare. An app that failed to declare itself boots
-  // perfectly and refuses every sign-in afterwards.
+  // Read the store, pair if `INSTALLED` says so, then declare. An app that failed
+  // to declare itself boots perfectly and refuses every sign-in afterwards.
   await xcore.start();
 
   nitro.hooks.hook("request", () => {
@@ -225,7 +309,7 @@ const { account, can, connected } = useSso();
 
 - The library never runs during SSR: `xcore` is a `server/` module and the client half is behind `onMounted`. Importing either into a component is what breaks a build.
 - Nuxt behind a relay needs the forwarded address to reach Node, or every session is filed under the container's own - which is what the portal's sessions screen then shows.
-- `await xcore.start()` in the plugin, before anything is served, and leave it there: it is skipped in silence once a credential is in the store.
+- `await xcore.start()` in the plugin, before anything is served, and leave it there. It reads the store, pairs only if `INSTALLED` is not true, and declares. The pairing code stays in the file for the life of the application: it is never looked at again once the key is set.
 - Dev reloads the server on every change: hand a shared `realtime.tickets` store, or the socket cannot reconnect after one.
-- `session.password` is 32 characters or more, and changing it signs everyone out.
-- `useRuntimeConfig()` belongs here, not in the library: nothing inside it reads an environment.
+- The sealing password is minted at the first boot and kept under `SSO_SESSION_PASSWORD`. Deleting that key signs everyone out at once, and the next boot mints a new one - which is a tool, not a fault.
+- Nothing reads a `.env`, here or inside the library. What a deployment used to carry - the identity, the callback, the gate, the broker credentials, the sealing password - lives in the application's own store, written by the pairing.\n- Several workers: elect outside, in the deployment. Every worker calls `await xcore.load()`, and only the elected one calls `await xcore.start()` - this library knows nothing of PM2 or of how many processes there are.

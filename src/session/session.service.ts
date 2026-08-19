@@ -3,6 +3,7 @@ import { SsoError } from "../errors.js";
 import { asFields } from "../parse.js";
 import { sameValue, seal, unseal } from "./seal.js";
 import type { SsoAuthService } from "../auth.service.js";
+import type { SsoEnvironment } from "../environment.js";
 import type { SsoClientContext, SsoLogger, SsoMe, SsoTokens } from "../types.js";
 
 /**
@@ -37,10 +38,17 @@ export interface SealedSession {
 
 export interface SsoSessionServiceOptions {
   auth: SsoAuthService;
-  /** 32 characters or more. Changing it signs everyone out, which is its own tool. */
-  password: string;
+  /**
+   * Where the sealing password and the cookie's name come from.
+   *
+   * Neither is configured. The password is minted at the first boot and kept in the
+   * application's own store, so nothing has to carry it into a deployment; the name
+   * is derived from the identity by x-core and answered with the pairing, so two
+   * applications served under one host cannot both write `sso_session` and sign each
+   * other out on every navigation.
+   */
+  identity: SsoEnvironment;
   cookie?: {
-    name?: string;
     stateName?: string;
     /** False only where dev serves plain HTTP: a Secure cookie is dropped there. */
     secure?: boolean;
@@ -93,11 +101,16 @@ export class SsoSessionService {
   constructor(private readonly options: SsoSessionServiceOptions) {}
 
   private get cookieName() {
-    return this.options.cookie?.name ?? "sso_session";
+    return this.options.identity.cookieName;
   }
 
+  /**
+   * The short-lived cookie tying a sign-in to the browser that started it, named
+   * after the session cookie so two applications under one host never collide on it
+   * either.
+   */
   private get stateName() {
-    return this.options.cookie?.stateName ?? "sso_state";
+    return this.options.cookie?.stateName ?? `${this.cookieName}_state`;
   }
 
   private cookieOptions(maxAge?: number) {
@@ -212,12 +225,12 @@ export class SsoSessionService {
 
   /** The pair, without asking the provider anything. For a socket ticket, mostly. */
   read(jar: CookieJar) {
-    return readSealedSession(unseal(this.options.password, jar.read(this.cookieName)));
+    return readSealedSession(unseal(this.options.identity.sessionPassword, jar.read(this.cookieName)));
   }
 
   write(jar: CookieJar, session: SealedSession) {
     const days = this.options.cookie?.maxAgeDays ?? DEFAULT_MAX_AGE_DAYS;
-    jar.write(this.cookieName, seal(this.options.password, session), this.cookieOptions(days * 24 * 60 * 60));
+    jar.write(this.cookieName, seal(this.options.identity.sessionPassword, session), this.cookieOptions(days * 24 * 60 * 60));
   }
 
   clear(jar: CookieJar) {

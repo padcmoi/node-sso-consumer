@@ -1,5 +1,6 @@
 import { SsoError } from "./errors.js";
 import { asFields } from "./parse.js";
+import { ENV, type SsoEnvironment } from "./environment.js";
 import type { SsoHttpClient } from "./http.js";
 import type { SsoConsumerDeclaration, SsoLogger } from "./types.js";
 
@@ -14,8 +15,16 @@ export interface SsoConfigServiceOptions {
   http: SsoHttpClient;
   /** The login window the browser is sent to. NOT the API - they differ by a port. */
   frontUrl: string;
-  /** How this app plugs in. Sent whole on every declaration. */
-  declaration: SsoConsumerDeclaration;
+  /**
+   * What this application IS, read back from its own store rather than written here.
+   *
+   * The declaration was recorded on the console when the pairing code was minted,
+   * and `declare()` sends it again at every boot. A copy kept in the application's
+   * own code would be a second source, and it would WIN: the day the two differ, the
+   * boot silently replaces what an operator set, and a callback URL moved that way
+   * breaks the login with nothing saying so.
+   */
+  identity: SsoEnvironment;
   logger?: SsoLogger;
   retry?: { attempts?: number; delayMs?: number };
   /**
@@ -28,6 +37,52 @@ export interface SsoConfigServiceOptions {
 }
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const text = (fields: Record<string, unknown> | null, key: string) =>
+  fields && typeof fields[key] === "string" ? fields[key] : null;
+
+/**
+ * The pairing answer, laid out as the keys the application's store holds.
+ *
+ * Mapped HERE and in one place: the provider's shape is its own and it is still
+ * settling, so a second reading of it somewhere downstream is a second thing to
+ * update the day a field moves.
+ *
+ * The HMAC credential is NOT among them. It goes to `hmac.setSecret`, into the store
+ * that signs with it, and never into a key/value shelf beside a broker password.
+ */
+function environmentOf(fields: Record<string, unknown> | null) {
+  const propagation = asFields(fields?.propagation);
+  const account = asFields(propagation?.account);
+  const gate = fields?.dependGlobalRessource;
+
+  const values: Record<string, unknown> = {
+    [ENV.SSO_CLIENT_ID]: text(fields, "clientId"),
+    [ENV.SSO_SESSION_COOKIE_NAME]: text(fields, "sessionCookieName"),
+    [ENV.SSO_REDIRECT_URI]: text(fields, "redirectUri"),
+    [ENV.SSO_CANCEL_URI]: text(fields, "cancelUri"),
+    [ENV.SSO_TEMPLATE]: text(fields, "template"),
+    // An ARRAY, and an empty one is a declaration - "this application filters
+    // nothing" - rather than an absence, so it is kept even when it is empty.
+    [ENV.SSO_DEPEND_GLOBAL_RESSOURCE]: Array.isArray(gate) ? gate : [],
+
+    [ENV.HMAC_AMQP_QUEUE]: text(propagation, "amqpQueue"),
+    [ENV.HMAC_PROPAGATION_SECRET]: text(propagation, "propagationSecret"),
+    [ENV.HMAC_AMQP_BROKER_QUEUE]: text(propagation, "brokerQueue"),
+    [ENV.HMAC_AMQP_VHOST]: text(account, "vhost"),
+
+    [ENV.RABBITMQ_PROTOCOL]: text(account, "protocol"),
+    [ENV.RABBITMQ_HOST]: text(account, "host"),
+    [ENV.RABBITMQ_PORT]: typeof account?.port === "number" ? account.port : null,
+    [ENV.RABBITMQ_USER]: text(account, "username"),
+    [ENV.RABBITMQ_PASSWORD]: text(account, "password"),
+  };
+
+  // A field the provider did not send is DROPPED rather than written as null: `save`
+  // is an upsert, and writing null would overwrite a value that was already there
+  // with an emptiness nobody decided.
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== null && value !== undefined));
+}
 
 /**
  * Initiating the configuration: how this app becomes an application the provider
@@ -60,7 +115,7 @@ export class SsoConfigService {
     if (!front) throw new SsoError("UNREACHABLE", "No front URL configured for the SSO login window");
 
     const url = new URL("/authorize", front);
-    url.searchParams.set("consumer", this.options.http.clientId);
+    url.searchParams.set("consumer", this.options.identity.clientId);
     url.searchParams.set("state", params.state);
     return url.toString();
   }
@@ -89,7 +144,7 @@ export class SsoConfigService {
    * unless told to skip that proof.
    */
   async declare(params: { overrides?: Partial<SsoConsumerDeclaration>; verify?: boolean } = {}) {
-    const declaration: SsoConsumerDeclaration = { ...this.options.declaration, ...params.overrides };
+    const declaration: SsoConsumerDeclaration = { ...this.options.identity.declaration, ...params.overrides };
     if (!declaration.redirectUri) throw new SsoError("NOT_XCORE", "No redirectUri to declare: the callback address is missing");
 
     if (params.verify !== false && !(await this.verifyProvider())) {
@@ -128,53 +183,42 @@ export class SsoConfigService {
   }
 
   /**
-   * Redeem a pairing code, ONCE, to collect what was built for this app.
+   * Redeem the pairing code, ONCE, and collect everything built for this app.
    *
-   * The code is single-use and short-lived by design: it installs and nothing
-   * else, so what comes out of it is durable and the code itself has no business
-   * surviving the moment. What the provider answers - the credential and what it
-   * takes to receive its rotations - is handed straight back to the caller, which
-   * is the only side entitled to write it into its own store.
+   * The code is single-use and short-lived by design: it installs and nothing else,
+   * so what comes out of it is durable and the code itself has no business surviving
+   * the moment. x-core deletes the row in the same breath and revokes the
+   * infrastructure manager key it had borrowed.
    *
-   * The answer is returned unread on purpose: its shape belongs to the provider,
-   * and reading it here would pin this library to a contract that is still
-   * settling. Give `installPath` when it lands somewhere other than the default.
+   * NOTHING IS CREATED by this call. The queue, the broker account, the SSO consumer
+   * and the HMAC credential were all made when the code was MINTED, on the console,
+   * in front of whoever minted it - so a boot either finds its credential waiting or
+   * finds nothing at all, and never fails half way.
+   *
+   * There is NO BODY, and that is the shape of the contract: an application still
+   * able to send its own callback URL here would be one able to point somebody
+   * else's installation at itself. It is also the only unsigned call this library
+   * makes - the code IS the credential here, because the one it brings back does not
+   * exist yet.
    */
-  async pair(params: { token: string; clientId: string }) {
+  async pair(params: { token: string }) {
     const path = this.options.installPath ?? "/api/v1/portal/install";
-
-    // NO BODY, and that is the shape of the contract: everything this application
-    // is - its identity, its callback, its gate, its queue - was declared on the
-    // provider's console when the code was minted, and the queue, the broker
-    // account and the credential were created there and then. This call collects
-    // them. An application still able to send its own callback URL would be one
-    // able to point somebody else's installation at itself.
-    //
-    // UNSIGNED, and it is the only call in this library that is: the code IS the
-    // credential here, because the one it brings back does not exist yet.
     const payload = await this.options.http.unsigned(path, "POST", undefined, { "x-install-token": params.token });
 
     const fields = asFields(payload);
+    const clientId = fields && typeof fields.clientId === "string" ? fields.clientId : null;
     const secret = fields && typeof fields.secret === "string" ? fields.secret : null;
-    if (!secret) {
-      throw new SsoError("MALFORMED_ANSWER", "The pairing answer carried no secret: nothing can be signed with it");
-    }
 
-    // The identity the provider recorded, checked against the one configured here.
-    // They are decided in two places now, and a mismatch is an application that
-    // installs cleanly and then signs as somebody it is not - which surfaces as a
-    // 401 on every later call, hours from here, naming neither cause.
-    const clientId = typeof fields?.clientId === "string" ? fields.clientId : params.clientId;
-    if (clientId !== params.clientId) {
+    // Both or nothing. A credential with no identity cannot be signed with, and an
+    // identity with no credential is an application that boots and then fails every
+    // call with a 401 naming nothing.
+    if (!clientId || !secret) {
       throw new SsoError(
         "MALFORMED_ANSWER",
-        `This install token was minted for '${clientId}', but this application is configured as '${params.clientId}'`
+        `The pairing answer carried no ${!clientId ? "identity" : "secret"}: there is nothing to sign with`
       );
     }
 
-    // Everything else the provider chose to send travels back untouched: its shape
-    // is the provider's, and reading it here would pin this library to a contract
-    // that is still settling.
-    return { clientId, secret, answer: payload };
+    return { clientId, secret, environment: environmentOf(fields) };
   }
 }
