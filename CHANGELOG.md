@@ -4,7 +4,7 @@
 
 - Add the packed tarball under `packages/`, so a consumer installs this library from a path rather than from a registry
 - Add `createXcoreBridge`, the single entry point linking an application to the x-core SSO
-- Add the pairing service: `install()` sends the pairing code to x-core's dedicated route, which creates the AMQP queue, records the SSO consumer config, mints the HMAC credential and withdraws the code; the secret comes back and is written into the injected credential store
+- Add the pairing service: `install()` sends the pairing code to x-core's dedicated route, unsigned and with no body, and collects what was built when that code was MINTED - the AMQP queue, the broker account, the SSO consumer and the HMAC credential all already exist over there. The secret comes back and is written into the injected credential store; x-core deletes the row and revokes the manager key it borrowed in the same breath. A code minted for another identity is refused rather than adopted: it would install cleanly and then sign as somebody else
 - Add the auth service: session opening, token rotation with concurrent-call dedup, account read and permission checks
 - Add the sealed session cookie (AES-256-GCM) and its cookie jar over raw Node headers
 - Add the framework-agnostic middleware: the five SSO routes, the session guard, the permission guard and the error mapping
@@ -17,7 +17,8 @@
 - Add `bootstrap.elect`, so one worker out of several pairs and declares - the install code is single-use, and a second worker's attempt is refused
 - Add `jar()`, the cookie jar of one exchange, for a handler that needs the sealed session rather than the account
 - Add the test suite: 107 tests over the sealing, the signed channel, the pairing, the rotation and its dedup, the session, the guards, the tickets and the bridge
-- Add `installQueue`, required by an application whose clientId carries a dot, an underscore or a colon: a queue name may not, so such an identity names its own rather than being silently renamed
+- Require the pairing code as `install(code)`'s only argument: it is what the call is about, and one able to run without a code would be a call whose argument reads as decoration. An empty one throws rather than returning `null`, which would read as "already installed". `start(code?)` is the one that falls back on `installToken` in the config, because a boot with no code at all is the ordinary case of every application already installed
+- Drop `installQueue` and the whole install body. The queue is named by the infrastructure manager, from the destination and the environment an operator typed on x-core's console, and read back from what it answered - so this library never has an opinion about it, and there is one implementation of the naming rather than two that can disagree. An application still able to send its own callback URL at install would be one able to point somebody else's installation at itself
 - Document that this library is proprietary to x-core and runs against nothing else, in the README and at the head of every guide
 - Document the package README, the installation guide, the Express, NestJS and Nuxt/Nitro integration guides, and running several processes
 

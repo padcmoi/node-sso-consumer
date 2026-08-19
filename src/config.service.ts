@@ -128,7 +128,7 @@ export class SsoConfigService {
   }
 
   /**
-   * Redeem a pairing code, ONCE, to bring this app into existence.
+   * Redeem a pairing code, ONCE, to collect what was built for this app.
    *
    * The code is single-use and short-lived by design: it installs and nothing
    * else, so what comes out of it is durable and the code itself has no business
@@ -140,29 +140,19 @@ export class SsoConfigService {
    * and reading it here would pin this library to a contract that is still
    * settling. Give `installPath` when it lands somewhere other than the default.
    */
-  async pair(params: {
-    token: string;
-    clientId: string;
-    declaration?: Partial<SsoConsumerDeclaration>;
-    /** Left out unless this application's queue was decided elsewhere. */
-    amqpQueue?: string;
-  }) {
+  async pair(params: { token: string; clientId: string }) {
     const path = this.options.installPath ?? "/api/v1/portal/install";
 
+    // NO BODY, and that is the shape of the contract: everything this application
+    // is - its identity, its callback, its gate, its queue - was declared on the
+    // provider's console when the code was minted, and the queue, the broker
+    // account and the credential were created there and then. This call collects
+    // them. An application still able to send its own callback URL would be one
+    // able to point somebody else's installation at itself.
+    //
     // UNSIGNED, and it is the only call in this library that is: the code IS the
     // credential here, because the one it brings back does not exist yet.
-    const payload = await this.options.http.unsigned(
-      path,
-      "POST",
-      {
-        clientId: params.clientId,
-        declaration: { ...this.options.declaration, ...params.declaration },
-        // Omitted rather than sent empty: the provider names it after the clientId,
-        // and sending an undefined key would be sending a decision nobody made.
-        ...(params.amqpQueue ? { amqpQueue: params.amqpQueue } : {}),
-      },
-      { "x-install-token": params.token }
-    );
+    const payload = await this.options.http.unsigned(path, "POST", undefined, { "x-install-token": params.token });
 
     const fields = asFields(payload);
     const secret = fields && typeof fields.secret === "string" ? fields.secret : null;
@@ -170,9 +160,21 @@ export class SsoConfigService {
       throw new SsoError("MALFORMED_ANSWER", "The pairing answer carried no secret: nothing can be signed with it");
     }
 
+    // The identity the provider recorded, checked against the one configured here.
+    // They are decided in two places now, and a mismatch is an application that
+    // installs cleanly and then signs as somebody it is not - which surfaces as a
+    // 401 on every later call, hours from here, naming neither cause.
+    const clientId = typeof fields?.clientId === "string" ? fields.clientId : params.clientId;
+    if (clientId !== params.clientId) {
+      throw new SsoError(
+        "MALFORMED_ANSWER",
+        `This install token was minted for '${clientId}', but this application is configured as '${params.clientId}'`
+      );
+    }
+
     // Everything else the provider chose to send travels back untouched: its shape
     // is the provider's, and reading it here would pin this library to a contract
     // that is still settling.
-    return { clientId: params.clientId, secret, answer: payload };
+    return { clientId, secret, answer: payload };
   }
 }

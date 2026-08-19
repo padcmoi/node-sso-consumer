@@ -15,14 +15,33 @@ Concretely, it will not run against anything else:
 
 It also needs an x-core recent enough to serve `POST /api/v1/portal/install`. Against an older one, everything works except installing: the credential has to be provisioned by hand through `POST /api/v1/sso/consumer/config` and delivered over the broker, and this library is then given a store that already holds it.
 
-## The install token
+## The installation happens before the application does
 
-An application does not get created by an operator filling in a form. It **installs itself**, and what lets it is a pairing code minted on x-core's manager, under _Portails applicatifs → Jetons d'installation_:
+This is the part worth reading twice, because it is not where it used to be.
 
-- **one destination, one code.** The label is unique - two codes for one application would be two answers to which one installs it. Wanting a fresh value is a regeneration on the same row, not a second row;
-- **it expires**, in hours, 24 by default;
-- **it is single-use**, and it is spent the moment it is claimed, before anything is created;
-- **it stays readable** on that screen for as long as it lives: an installation is not always finished the day it is prepared, and a code nobody can read back is a code minted twice.
+An application does not get created by an operator filling in a form, and it does not create itself either. An operator goes to x-core's manager, under _Portails applicatifs → Jetons d'installation → Générer un jeton_, walks four steps, and what the last one hands back is a **pairing code**. That act is the installation:
+
+| Step | Where  | What                                                                        |
+| ---- | ------ | --------------------------------------------------------------------------- |
+| 1    | x-core | asks the **infrastructure manager** for a queue and a broker account for it  |
+| 2    | x-core | records the **propagation target** the credential will travel on             |
+| 3    | x-core | records the **SSO consumer**: identity, callback, cancel URL, template, gate |
+| 4    | x-core | mints the **HMAC credential** and aims it at that queue                      |
+| 5    | x-core | seals both secrets onto the token's row, and answers the code                |
+
+By the time the code is handed over, everything exists. The queue is on the broker, the account is scoped to it, the identity is in the SSO. What the operator carries away is one value.
+
+Three things follow from that, and they are the whole point:
+
+**A failure lands on a form.** It used to land on the first boot of a service nobody was watching, hours later, with the code already spent - and the person who could have fixed it had gone home. Now a key that opens nothing, a name already taken, a manager that is down: all of it refuses in front of whoever can do something about it.
+
+**The borrowed key does not survive.** The infrastructure manager key an operator pasted in to build the reservation is revoked on the manager itself, at both ends of the code's life: when the application collects its credential, and when the code is deleted.
+
+**Deleting the code is a cancellation.** The row on that screen is the only thing that knows a broker account and an SSO identity were created for an application that never arrived. Deleting it takes the credential, the consumer, the propagation target and the broker account back down, in that order. Nothing is left under a name the next attempt would be refused for.
+
+The code itself: **one destination, one code**; **it expires**, in hours; **it is single-use**, and redeeming it deletes the row; and **it stays readable** on that screen for as long as it lives, because an installation is not always finished the day it is prepared.
+
+## Its place in the config
 
 That value goes into the application's config, the way any other secret does:
 
@@ -43,54 +62,64 @@ createXcoreBridge({
 });
 ```
 
-## One call, and the provider does the rest
+`clientId` and `consumer` are still here, and they are not duplicates of what was declared on the console. `clientId` is what this application SIGNS as, on every call, forever. `consumer` is what it re-declares at every boot, which is the ordinary lifecycle of an application already installed. What the console decided is the same thing, once, so that it could exist before the application did - and `install()` refuses a code minted for a different identity rather than letting the two drift apart in silence.
+
+There is no `installQueue`. There used to be, because the queue was named after the clientId and the two charsets disagree. The queue is now named by the infrastructure manager, from the `app` and `env` an operator typed, and this library never has an opinion about it.
+
+### `install()` requires it
+
+The code comes off a screen and is read once, and `install()` takes it as its only argument - required:
 
 ```ts
-await xcore.install();
+await xcore.install("7EPkuTlxYY2GcDkylMqWrGezgmXDi0LPnae_DkKofQQ");
+
+// Or, when the same call should declare afterwards:
+await xcore.start("7EPkuTlxYY2GcDkylMqWrGezgmXDi0LPnae_DkKofQQ");
 ```
 
-`start()` calls it before declaring, so an ordinary boot needs nothing else. What it does here is small on purpose - it sends the code to the one route that exists for it, and **the work happens on x-core**:
+An `install()` that could run with nothing would be a call whose argument reads as decoration, when the code IS what it is about. `start()` is the one that goes looking in the config, because a boot has to be able to run with no code at all - which is the ordinary case of every application already installed. Given both, the argument wins: it is the more recent of the two, and it was typed on purpose.
 
-| Step | Where        | What                                                                             |
-| ---- | ------------ | -------------------------------------------------------------------------------- |
-| 1    | this library | `POST /api/v1/portal/install`, **unsigned**, the code in `x-install-token`       |
-| 2    | x-core       | claims the token, by an UPDATE that only takes a row still unspent               |
-| 3    | x-core       | creates the **AMQP queue** this application's credential is propagated to        |
-| 4    | x-core       | creates the **broker account** for it, scoped to that one queue                  |
-| 5    | x-core       | records the **SSO consumer config**: callback, cancel URL, template, access gate |
-| 6    | x-core       | mints the **HMAC credential** and aims it at that queue                          |
-| 7    | x-core       | stamps the token **spent and withdrawn**                                         |
-| 8    | this library | writes the secret into the credential store, through the injected runtime        |
-| 9    | this library | declares the consumer, signed, exactly as every later boot does                  |
+## One call, and there is nothing to do
 
-It is the only unsigned call this library ever makes, and it cannot be otherwise: what it creates is the credential a signature would be built from, so requiring one would be requiring the outcome as the input.
+```ts
+await xcore.install(code);
+```
+
+`start()` calls it before declaring, so an ordinary boot needs nothing else. It goes to the `provider` address configured above, and to exactly one route on it:
+
+```http
+POST https://x-core.example.com:13001/api/v1/portal/install
+x-install-token: 7EPkuTlxYY2GcDkylMqWrGezgmXDi0LPnae_DkKofQQ
+content-type: application/json
+
+{}
+```
+
+What it does is small, and smaller than it looks:
+
+| Step | Where        | What                                                            |
+| ---- | ------------ | --------------------------------------------------------------- |
+| 1    | this library | `POST {provider}/api/v1/portal/install`, **unsigned**, **no body** |
+| 2    | x-core       | reads the reservation, answers it whole and deletes the row     |
+| 3    | x-core       | **revokes** the manager key it borrowed: nothing is left for it |
+| 4    | this library | writes the secret into the credential store                     |
+| 5    | this library | declares the consumer, signed, as every later boot does         |
+
+It is the only unsigned call this library ever makes, and it cannot be otherwise: what it collects is the credential a signature would be built from, so requiring one would be requiring the outcome as the input.
+
+**No body**, and that is deliberate. An application that could still send its own callback URL here would be an application able to point somebody else's installation at itself.
 
 ### The queue
 
 It matters beyond this one call: it is what every later **rotation** travels on. Without it the secret would exist in x-core and in this one answer and nowhere else, and nothing could ever replace it.
 
-x-core holds the broker's credentials, so the queue is really created: the row goes into `hmac_propagation_target`, the link into `hmac_credential_target`, and the propagation layer asserts the queue durable on the `hmac-credentials` vhost the first time it publishes to it. The name on the broker is `hmac-<name>.queue`.
-
-Which is where the one constraint comes from. **The queue charset is narrower than the clientId's**: `[A-Za-z0-9-]`, no dot, no underscore, no colon. A clientId is allowed all three, so an identity like `oauth_x_core_manager` is a perfectly legal identity and cannot be a queue name. Such an application names its own:
-
-```ts
-createXcoreBridge({
-  clientId: "oauth_x_core_manager",
-  installToken,
-  // Required here, since the clientId carries underscores. x-core refuses with a
-  // 400 saying so rather than renaming it into something nobody chose - two
-  // identities differing only by a dot would otherwise land on one queue.
-  installQueue: "x-core-manager",
-});
-```
-
-Anything matching the charset needs nothing: the queue takes the clientId's name, which is what an operator recognises on the broker.
+The name on the broker is `hmac-<base>.queue`, where `base` is what the infrastructure manager built from the destination and the environment - `x-facturation-prod`, and the login `x_facturation_prod`. None of that is decided here or guessed at: it is read back from what the manager answered, so there is one implementation of the convention rather than two that can disagree.
 
 ## What comes back
 
 ```ts
-const installed = await xcore.install();
-// null when there was nothing to do: no code, or a credential already in the store.
+const installed = await xcore.install(code);
+// null when there was nothing to do: a credential is already in the store.
 
 installed?.answer;
 // {
@@ -100,10 +129,10 @@ installed?.answer;
 //   template:    null,
 //   cancelUri:   null,
 //   propagation: {
-//     amqpQueue:         "oauth-x-facturation",
+//     amqpQueue:         "x-facturation-prod",
 //     propagationSecret: "…",
-//     brokerQueue:       "hmac-oauth-x-facturation.queue",
-//     account: { username: "oauth-x-facturation", password: "…", vhost: "hmac-credentials" }
+//     brokerQueue:       "hmac-x-facturation-prod.queue",
+//     account: { username: "x_facturation_prod", password: "…", vhost: "hmac-credentials" }
 //   }
 // }
 ```
@@ -113,20 +142,18 @@ installed?.answer;
 That is the application's whole propagation configuration, and it belongs in its environment:
 
 ```dotenv
-HMAC_AMQP_QUEUE=oauth-x-facturation
+HMAC_AMQP_QUEUE=x-facturation-prod
 HMAC_PROPAGATION_SECRET=<propagationSecret>
 HMAC_AMQP_VHOST=hmac-credentials
 RABBITMQ_USER=<account.username>
 RABBITMQ_PASSWORD=<account.password>
 ```
 
-`account` is null when x-core created nothing: either its `RABBITMQ_MANAGEMENT_URL` is not set - AMQP has no frames for administering users, so creating one needs the management plugin and an administrator account, which is a prod-side arrangement - or a user of that name already exists and was left untouched, since replacing its password would lock out whoever is connected with it. Null means the broker account is somebody's to create by hand; everything else was still done.
+**Those five are the application's own job, and nothing here writes them.** `install()` writes the credential and stops there. Left unwired, the application signs perfectly on its first boot and then misses every rotation: the secret is replaced in x-core, the event is published to a queue nobody reads, and what surfaces days later is a 401 on every call with no cause named anywhere.
 
-The account it does create is scoped to that one queue and nothing else on the vhost. An account able to read the whole propagation vhost could read every other application's rotations, which is every other application's credentials.
+`account` is never null now. It was, when x-core created the queue itself: administering a broker user needs the management plugin and an administrator credential, which x-core does not hold and must not. The infrastructure manager holds it, that is its job, and the account it creates is scoped to that one application's queues and nothing else on the vhost. An account able to read the whole propagation vhost could read every other application's rotations, which is every other application's credentials.
 
-`HMAC_PROPAGATION_SECRET` is not decoration. Every rotation event x-core publishes carries the secret recorded on that queue's row, and the receiver compares it to what it was configured with. A mismatch is not an error anybody sees - it is a rotation dropped in silence, and an application still signing with a secret x-core has replaced.
-
-The credential itself needs none of this on the first boot: `install()` has already written it into the store. The queue is what keeps it valid afterwards.
+`HMAC_PROPAGATION_SECRET` is not decoration either. Every rotation event x-core publishes carries the secret recorded on that queue's row, and the receiver compares it to what it was configured with. A mismatch is not an error anybody sees - it is a rotation dropped in silence.
 
 ## Afterwards
 
@@ -134,8 +161,11 @@ Nothing about installing runs again. From here the application signs with its ow
 
 `install()` is safe to leave in the boot path forever:
 
-- no `installToken` in the config → returns `null`, silently;
+- an empty code → throws. It is an environment variable nobody set, and a `null` there would read as "already installed";
 - a credential already in the store → returns `null`, silently. The code is never spent twice;
-- a failure at any step on x-core → the token is **put back**, so a retry works. A provider that could not mint must not turn a retry into a call to whoever may mint a new code.
+- a code minted for another identity → throws, naming both. It is a misconfiguration, and the alternative is an application that installs cleanly and signs as somebody else;
+- a code already redeemed, withdrawn or expired → throws. There is nothing to retry: on x-core the row is gone, and what it held has been handed to whoever redeemed it.
+
+That last one is the one real change in failure behaviour. There is no half-installed state to recover from any more, because nothing is built at this moment: the call either finds a reservation waiting or finds nothing at all.
 
 Running several workers: the code is single-use, so exactly one of them may attempt it. See [Running several processes](./multi-process.md).
