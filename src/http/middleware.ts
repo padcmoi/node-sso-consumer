@@ -19,8 +19,14 @@ export interface SsoMiddlewareOptions {
    */
   resolve(req: WebRequest, res: WebResponse): Promise<{ me: SsoMe; tokens: SsoTokens; userId: string } | null>;
   forget?(userId: string): void;
-  /** Where a signed-out browser goes. The only thing that signs anyone in. */
-  portalUrl: string;
+  /**
+   * Where a signed-out browser goes. The only thing that signs anyone in.
+   *
+   * A function rather than a value: the provider sends this address at pairing and
+   * it is read out of the store, which happens inside `start()` - long after this
+   * middleware is built. Captured as a string it would always be the fallback.
+   */
+  portalUrl(): string;
   basePath?: string;
   afterLogin?: string;
   logger?: SsoLogger;
@@ -77,7 +83,7 @@ export class SsoMiddleware {
         if (!resolved) {
           // No login page here, and there must not be: the portal is the only
           // thing in this ecosystem that signs a human in.
-          redirect(res, this.options.portalUrl);
+          redirect(res, this.options.portalUrl());
           return;
         }
         req.me = resolved.me;
@@ -126,7 +132,7 @@ export class SsoMiddleware {
       this.options.logger?.error?.(`[sso] ${error.code}: ${error.message}`);
 
       if (error.code === "FORBIDDEN") return sendJson(res, 403, { error: error.message });
-      if (error.code === "UNAUTHORIZED") return redirect(res, this.options.portalUrl);
+      if (error.code === "UNAUTHORIZED") return redirect(res, this.options.portalUrl());
       // NO_CREDENTIAL, NOT_XCORE, UNREACHABLE, MALFORMED_ANSWER, REFUSED: this
       // application's problem, and never the reader's to act on.
       sendJson(res, 503, { error: "The identity provider is unavailable" });
@@ -162,7 +168,7 @@ export class SsoMiddleware {
     if (sealed) this.options.forget?.(sealed.userId);
     // Asymmetric on purpose: this closes THIS application's session and leaves the
     // reader signed into the SSO and every other app.
-    redirect(res, this.options.portalUrl);
+    redirect(res, this.options.portalUrl());
   }
 
   /**

@@ -135,9 +135,9 @@ The hash is re-read on EVERY call rather than captured at boot: the credential i
 replaced by propagation, and a client built once would sign with the old one until the
 next restart - which surfaces as a `401` on everything, with nothing naming the cause.
 
-`environment` holds seventeen keys and this library writes them: `INSTALLED`,
+`environment` holds eighteen keys and this library writes them: `INSTALLED`,
 `SSO_SESSION_PASSWORD`, `SSO_SESSION_COOKIE_NAME`, `SSO_CLIENT_ID`, `SSO_REDIRECT_URI`,
-`SSO_CANCEL_URI`, `SSO_TEMPLATE`, `SSO_DEPEND_GLOBAL_RESSOURCE`, `HMAC_AMQP_QUEUE`,
+`SSO_CANCEL_URI`, `SSO_PORTAL_URL`, `SSO_TEMPLATE`, `SSO_DEPEND_GLOBAL_RESSOURCE`, `HMAC_AMQP_QUEUE`,
 `HMAC_PROPAGATION_SECRET`, `HMAC_AMQP_VHOST`, `HMAC_AMQP_BROKER_QUEUE`,
 `RABBITMQ_PROTOCOL`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`,
 `RABBITMQ_PASSWORD`. The values are JSON, not strings - a gate is a list, a port is a

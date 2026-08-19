@@ -49,7 +49,7 @@ const withResolve = (resolve: () => Promise<Resolution>) => {
     session: new SsoSessionService({ auth, identity }),
     realtime: null,
     resolve,
-    portalUrl: PORTAL,
+    portalUrl: () => PORTAL,
     basePath: "/api/auth",
   });
 };

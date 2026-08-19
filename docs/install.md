@@ -150,6 +150,7 @@ xcore.environment;
 //   SSO_CLIENT_ID:               "oauth-x-facturation",
 //   SSO_REDIRECT_URI:            "https://facturation.example.com/api/auth/sso/callback",
 //   SSO_CANCEL_URI:              "https://facturation.example.com/",
+//   SSO_PORTAL_URL:              "https://portal.example.com",     // where a sign-out lands
 //   SSO_TEMPLATE:                "gestionpratique",
 //   SSO_DEPEND_GLOBAL_RESSOURCE: ["facturation"],
 //
