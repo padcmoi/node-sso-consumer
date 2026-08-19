@@ -29,6 +29,20 @@ export const ENV = {
   SSO_REDIRECT_URI: "SSO_REDIRECT_URI",
   /** Where a reader who gives up on signing in lands. */
   SSO_CANCEL_URI: "SSO_CANCEL_URI",
+  /**
+   * The portal: where a sign-out lands, and the only place anyone signs in.
+   *
+   * ONE address for three exits, and they are the same exit seen from three sides:
+   * a reader who signs out, a session refused because it is over, and a session
+   * revoked from somewhere else all end up in the same place - the portal, which is
+   * the only thing in this ecosystem that signs a human in.
+   *
+   * It comes from the provider rather than from the address book: x-core is what
+   * serves the portal and what knows which one an application belongs to. A copy
+   * written down here would keep sending readers to an address that moved, and a
+   * sign-out landing on nothing reads as broken rather than as stale.
+   */
+  SSO_PORTAL_URL: "SSO_PORTAL_URL",
   /** The look of the login screen. */
   SSO_TEMPLATE: "SSO_TEMPLATE",
   /** The gate, an ARRAY: empty means this application filters nothing. */
@@ -161,6 +175,17 @@ export class SsoEnvironment {
       dependGlobalRessource: Array.isArray(gate) ? gate.filter((value) => typeof value === "string") : [],
     };
     return declaration;
+  }
+
+  /**
+   * Where a signed-out browser goes, as the provider said it - or nothing.
+   *
+   * Nothing rather than a guess: the caller falls back on the address book, which
+   * is what answers for an application paired before this key existed. A value
+   * invented here would be indistinguishable from one the provider sent.
+   */
+  get portalUrl() {
+    return text(this.ready, ENV.SSO_PORTAL_URL);
   }
 
   /** The resource this application IS, taken from the gate it already declares. */

@@ -245,7 +245,9 @@ export class XcoreBridge {
         this.live?.forget(userId);
         this.provenAt.delete(userId);
       },
-      portalUrl: this.provider.portalUrl,
+      // Read through, never captured: the provider sends its own portal address at
+      // pairing, and the address book is only what answers before it has.
+      portalUrl: () => this.identity.portalUrl ?? this.provider.portalUrl,
       basePath: options.routes?.basePath,
       afterLogin: options.routes?.afterLogin,
       logger: options.logger,

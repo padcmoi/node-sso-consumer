@@ -61,6 +61,9 @@ function environmentOf(fields: Record<string, unknown> | null) {
     [ENV.SSO_SESSION_COOKIE_NAME]: text(fields, "sessionCookieName"),
     [ENV.SSO_REDIRECT_URI]: text(fields, "redirectUri"),
     [ENV.SSO_CANCEL_URI]: text(fields, "cancelUri"),
+    // Where a sign-out lands. Sent by the provider because the provider is what
+    // serves it, and a constant here would outlive the address.
+    [ENV.SSO_PORTAL_URL]: text(fields, "portalUrl"),
     [ENV.SSO_TEMPLATE]: text(fields, "template"),
     // An ARRAY, and an empty one is a declaration - "this application filters
     // nothing" - rather than an absence, so it is kept even when it is empty.
