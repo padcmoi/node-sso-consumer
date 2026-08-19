@@ -69,7 +69,7 @@ describe("booting", () => {
     expect(provider.calls("POST", INSTALL_PATH)).toHaveLength(1);
   });
 
-  it("leaves the queue to the provider unless one was decided elsewhere", async () => {
+  it("declares nothing when it redeems: the code carries the whole installation", async () => {
     const provider = stubProvider()
       .on("POST", INSTALL_PATH, { status: 201, body: { data: { clientId: "oauth-test", secret: "s" } } })
       .on("PUT", CONFIG_PATH, { status: 401 })
@@ -77,20 +77,55 @@ describe("booting", () => {
 
     await bridgeFor(provider, { hmac: stubHmac(null), installToken: "the-code" }).start();
 
-    // Sending an undefined key would be sending a decision nobody made: the
-    // provider names it after the clientId.
-    expect(JSON.parse(provider.calls("POST", INSTALL_PATH)[0].body ?? "{}")).not.toHaveProperty("amqpQueue");
+    // An empty body, on purpose: the identity, the callback and the queue were all
+    // decided when the code was minted. An application able to send its own
+    // callback URL here would be able to point somebody else's installation at
+    // itself.
+    expect(JSON.parse(provider.calls("POST", INSTALL_PATH)[0].body ?? "{}")).toEqual({});
   });
 
-  it("names the queue when the application was given one", async () => {
+  // The code comes off a screen and is read once: an application that gets it from
+  // a prompt or a secret store passes it in rather than putting it in a config.
+  it("takes the pairing code as an argument, and prefers it over the configured one", async () => {
     const provider = stubProvider()
       .on("POST", INSTALL_PATH, { status: 201, body: { data: { clientId: "oauth-test", secret: "s" } } })
       .on("PUT", CONFIG_PATH, { status: 401 })
       .on("PUT", CONFIG_PATH, { status: 204 });
 
-    await bridgeFor(provider, { hmac: stubHmac(null), installToken: "the-code", installQueue: "facturation-prod" }).start();
+    await bridgeFor(provider, { hmac: stubHmac(null), installToken: "the-config-one" }).start("the-typed-one");
 
-    expect(JSON.parse(provider.calls("POST", INSTALL_PATH)[0].body ?? "{}")).toHaveProperty("amqpQueue", "facturation-prod");
+    expect(provider.calls("POST", INSTALL_PATH)[0].headers["x-install-token"]).toBe("the-typed-one");
+  });
+
+  it("refuses to install with no code at all: an empty one is an env that never got set", async () => {
+    const provider = stubProvider();
+
+    await expect(bridgeFor(provider, { hmac: stubHmac(null) }).install("  ")).rejects.toThrow(/needs the pairing code/);
+    expect(provider.calls("POST", INSTALL_PATH)).toHaveLength(0);
+  });
+
+  it("installs from an argument alone, with nothing in the config", async () => {
+    const provider = stubProvider().on("POST", INSTALL_PATH, {
+      status: 201,
+      body: { data: { clientId: "oauth-test", secret: "s" } },
+    });
+
+    const paired = await bridgeFor(provider, { hmac: stubHmac(null) }).install("the-typed-one");
+
+    expect(paired).toMatchObject({ clientId: "oauth-test", secret: "s" });
+  });
+
+  it("refuses a code minted for another identity", async () => {
+    const provider = stubProvider().on("POST", INSTALL_PATH, {
+      status: 201,
+      body: { data: { clientId: "oauth-somebody-else", secret: "s" } },
+    });
+
+    // Installs cleanly, then signs as somebody it is not - which surfaces as a 401
+    // on every later call, hours away, naming neither cause.
+    await expect(bridgeFor(provider, { hmac: stubHmac(null), installToken: "the-code" }).start()).rejects.toThrow(
+      /minted for 'oauth-somebody-else'/
+    );
   });
 
   it("does not spend the code again once a credential is in the store", async () => {

@@ -116,7 +116,7 @@ describe("declaring this application at boot", () => {
 });
 
 describe("redeeming a pairing code", () => {
-  it("sends it unsigned, with the declaration, and hands the secret back to its owner", async () => {
+  it("sends it unsigned and with NO body, and hands the secret back to its owner", async () => {
     const provider = stubProvider().on("POST", "/api/v1/portal/install", {
       status: 201,
       body: { data: { clientId: "oauth-test", secret: "the-secret" } },
@@ -126,7 +126,10 @@ describe("redeeming a pairing code", () => {
 
     expect(paired).toMatchObject({ clientId: "oauth-test", secret: "the-secret" });
     expect(provider.last()?.headers["x-install-token"]).toBe("code");
-    expect(JSON.parse(provider.last()?.body ?? "{}")).toMatchObject({ clientId: "oauth-test", declaration });
+    // Everything this application is was declared on the provider's console when
+    // the code was minted. One that could still send its own callback URL here
+    // would be one able to point somebody else's installation at itself.
+    expect(JSON.parse(provider.last()?.body ?? "{}")).toEqual({});
   });
 
   it("refuses an answer carrying no secret, since nothing could be signed with it", async () => {

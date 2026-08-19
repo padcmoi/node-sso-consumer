@@ -66,16 +66,17 @@ export interface XcoreBridgeOptions {
    * an application goes from nothing to signing in the time of one boot, with no
    * operator step in between. Absent, the credential is expected to be there
    * already, delivered over the broker as it is for an application already paired.
+   *
+   * Nothing is created by redeeming it. The queue, the broker account, the SSO
+   * consumer and the credential were all built when the code was MINTED, on
+   * x-core's console, in front of whoever minted it - so a boot either finds its
+   * credential waiting or finds nothing at all, and never fails half way.
+   *
+   * `install(code)` REQUIRES one and reads nothing from here: it is the call that
+   * does the installing, and one able to run without a code would be a call whose
+   * argument reads as decoration. This option is what `start()` falls back on.
    */
   installToken?: string;
-  /**
-   * The AMQP queue the installation creates for this application's credential.
-   *
-   * Defaults to the clientId on the provider's side, which is what an operator
-   * recognises on the broker. Named here only by an application whose queue was
-   * decided elsewhere.
-   */
-  installQueue?: string;
   routes?: {
     basePath?: string;
     afterLogin?: string;
@@ -396,8 +397,12 @@ export class XcoreBridge {
    * Call it once everything else is up, and await it before serving: an
    * application that failed to declare itself boots perfectly and refuses every
    * sign-in afterwards.
+   *
+   * The pairing code can be given here instead of in the config, and it is handed
+   * straight to `install()`: an application reading it from a prompt or a secret
+   * store has one call to make rather than two.
    */
-  async start() {
+  async start(installToken?: string) {
     // The election is asked ONCE and covers both halves. Asking twice would let a
     // worker lose the pairing and win the declaration, which is a worker declaring
     // with a credential it has not got yet.
@@ -407,7 +412,12 @@ export class XcoreBridge {
       return null;
     }
 
-    await this.install();
+    // The config is read HERE and not in `install()`: a boot with no code at all is
+    // the ordinary case - every application already installed - and it must not
+    // read as a failure.
+    const token = installToken?.trim() || this.options.installToken?.trim();
+    if (token) await this.install(token);
+
     return this.declare();
   }
 
@@ -415,22 +425,31 @@ export class XcoreBridge {
    * The whole installation, from a code typed into a config to an application the
    * provider knows about.
    *
-   * ONE call, and the work is the provider's: the code goes to the route that
-   * exists for it, and what happens over there is the AMQP queue this
-   * application's credential will be propagated to, then the SSO config and the
-   * HMAC credential together, then the code itself, spent and withdrawn. What
-   * comes back is written into the credential store here - and from that moment
-   * this application signs for itself, exactly as every application already
-   * installed does.
+   * ONE call, and it CREATES NOTHING: the code goes to the route that exists for
+   * it, and what comes back is the AMQP queue, the broker account and the
+   * credential that were all made when the code was minted on the provider's
+   * console. The row over there is deleted in the same breath, which is what makes
+   * the code single-use. What comes back is written into the credential store here
+   * - and from that moment this application signs for itself, exactly as every
+   * application already installed does.
    *
-   * Skipped in silence when there is nothing to do: no code given, or a credential
-   * already in the store. Pairing twice is not a repair - the code is single-use
-   * and the second attempt is refused - so the check is what makes `start()` safe
-   * to leave in place forever, in the config, for the life of the application.
+   * The code is REQUIRED here, and it is the only argument. It comes off a screen,
+   * it is read once, and it is what the whole call is about - a version of this
+   * taking nothing and reaching into the config for it reads as if it could do
+   * something without one, which it cannot. `start()` is the one that goes looking
+   * in the config, because a boot has to be able to run with no code at all.
+   *
+   * Skipped in silence only when there is nothing left to do: a credential already
+   * in the store. Pairing twice is not a repair - the code is single-use and the
+   * second attempt is refused - so that check is what makes `start()` safe to leave
+   * in place forever, in the config, for the life of the application.
    */
-  async install() {
-    const token = this.options.installToken;
-    if (!token) return null;
+  async install(installToken: string) {
+    const token = installToken?.trim();
+    // Loud rather than silent: something called this on purpose, with a value it
+    // believed in. An empty one is an environment variable that never got set, and
+    // returning `null` here would look like "already installed".
+    if (!token) throw new Error("install() needs the pairing code minted on x-core's manager: it was given an empty one");
 
     const held = await this.options.hmac.clients.getSecretHash(this.options.clientId);
     if (held) return null;
@@ -440,11 +459,7 @@ export class XcoreBridge {
       throw new Error("An install token was given but this HMAC runtime cannot write a credential: it can only receive one");
     }
 
-    const paired = await this.config.pair({
-      token,
-      clientId: this.options.clientId,
-      amqpQueue: this.options.installQueue,
-    });
+    const paired = await this.config.pair({ token, clientId: this.options.clientId });
     // Called on its own object, so a runtime keeping state on `this` still works.
     await clients.setSecret(paired.clientId, paired.secret);
     this.options.logger?.info?.(`[sso] installed as ${paired.clientId}; the install token is spent`);
