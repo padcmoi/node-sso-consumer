@@ -1,8 +1,12 @@
 node_modules/
 dist/
 coverage/
+.nuxt/
+.output/
+.data/
 *.log
 .env
 .env.*
+!.env.sample
 .DS_Store
 .trash/

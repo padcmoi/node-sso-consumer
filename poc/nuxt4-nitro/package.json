@@ -1,0 +1,27 @@
+{
+  "name": "poc-nuxt4-nitro-api",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "prod:up": "docker compose up -d --build",
+    "prod:down": "docker compose down",
+    "prod:logs": "docker compose logs -f app",
+    "prod:reset": "docker compose down -v"
+  },
+  "dependencies": {
+    "@nuxt/ui": "^4.0.0",
+    "mysql2": "^3.11.5",
+    "nuxt": "^4.1.0",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.20",
+    "typescript": "^5.7.2"
+  }
+}
