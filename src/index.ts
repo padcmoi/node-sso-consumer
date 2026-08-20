@@ -50,7 +50,7 @@ export { ENV, SsoEnvironment, mintSessionPassword, type XcoreEnvironmentStore } 
 
 export { createPermissionReader, holds, type PermissionReader } from "./permissions.js";
 export {
-  currentEnvironment,
+  environmentOf,
   installTokenFor,
   PROVIDERS,
   providerFor,
