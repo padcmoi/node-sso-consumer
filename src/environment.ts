@@ -60,6 +60,13 @@ export const ENV = {
   RABBITMQ_PORT: "RABBITMQ_PORT",
   RABBITMQ_USER: "RABBITMQ_USER",
   RABBITMQ_PASSWORD: "RABBITMQ_PASSWORD",
+
+  /**
+   * Where the propagation queue is up to, so a redelivered rotation is applied
+   * once. Written by this library, never by the pairing: it is a position, not a
+   * setting, and the only key here that x-core knows nothing about.
+   */
+  HMAC_PROPAGATION_CURSOR: "HMAC_PROPAGATION_CURSOR",
 } as const;
 
 /**

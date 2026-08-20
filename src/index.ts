@@ -43,20 +43,23 @@ export {
 export { SsoRealtimeBridge, type SsoRealtimeBridgeOptions } from "./realtime/bridge.js";
 export { MemoryTicketStore, type TicketStore } from "./realtime/tickets.js";
 
-export {
-  SsoHttpClient,
-  type SsoHttpOptions,
-  type XcoreHmacInjection,
-  type SignedFetch,
-  type SignHeaders,
-  type HttpAnswer,
-} from "./http.js";
+export { SsoHttpClient, type SsoHttpOptions, type XcoreHmacInjection, type HttpAnswer } from "./http.js";
 
 // The application's own store, and the keys this library reads and writes in it.
 export { ENV, SsoEnvironment, mintSessionPassword, type XcoreEnvironmentStore } from "./environment.js";
 
 export { createPermissionReader, holds, type PermissionReader } from "./permissions.js";
-export { PROVIDERS, providerFor, type ProviderAddresses, type ProviderEnvironment, type ProviderOverride } from "./providers.js";
+export {
+  currentEnvironment,
+  installTokenFor,
+  PROVIDERS,
+  providerFor,
+  type InstallTokens,
+  type ProviderAddresses,
+  type ProviderConfig,
+  type ProviderEndpoint,
+  type ProviderEnvironment,
+} from "./providers.js";
 
 export { SsoError, isSessionOver, type SsoErrorCode } from "./errors.js";
 

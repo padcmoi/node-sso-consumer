@@ -48,9 +48,25 @@ the application:
 
 ```ts
 createXcoreBridge({
-  environment: "prod",
-  provider: "https://x-core.example.com:13001/",
-  installToken: "7EPkuTlxYY2GcDkylMqWrGezgmXDi0LPnae_DkKofQQ",
+  // The provider, one per environment. `baseUrl` is the API WITH its port: the login
+  // window lives on the same names without one and answers 204 to anything it does
+  // not know, so an application pointed at it declares itself "successfully" at every
+  // boot while nothing exists on the other side.
+  //
+  // Which of the two is used is READ from `NODE_ENV`, never configured: the same
+  // configuration ships to both. `dev` is optional - without it this library stands
+  // down in development and the application keeps its own local login.
+  provider: {
+    dev: { baseUrl: "https://d-sso.example.com:13001" },
+    prod: { baseUrl: "https://x-core.example.com:13001" },
+  },
+
+  // One pairing code per environment, each minted against its own x-core. It stays
+  // here for the life of the application: `INSTALLED` decides, not its presence.
+  installToken: {
+    dev: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+    prod: "8hK2mQx_pT4vN9wZaLbYcRdEfGhJkMnPqSt7UvWx1Yz",
+  },
   di: { hmac: { … }, environment: { load, save } },
 });
 ```
@@ -106,15 +122,15 @@ content-type: application/json
 
 What it does is small, and smaller than it looks:
 
-| Step | Where        | What                                                               |
-| ---- | ------------ | ------------------------------------------------------------------ |
-| 1    | this library | reads `di.environment.load()` and looks at `INSTALLED`             |
-| 2    | this library | `POST {provider}/api/v1/portal/install`, **unsigned**, **no body** |
-| 3    | x-core       | reads the reservation, answers it whole and deletes the row        |
-| 4    | x-core       | **revokes** the manager key it borrowed: nothing is left for it    |
-| 5    | this library | writes the secret through `di.hmac.setSecret`                      |
-| 6    | this library | records the whole answer, `INSTALLED` included, in one `save`      |
-| 7    | this library | declares the consumer, signed, as every later boot does            |
+| Step | Where        | What                                                                                               |
+| ---- | ------------ | -------------------------------------------------------------------------------------------------- |
+| 1    | this library | reads `di.environment.load()` and looks at `INSTALLED`                                             |
+| 2    | this library | `POST {provider}/api/v1/portal/install`, **unsigned**, **no body**                                 |
+| 3    | x-core       | reads the reservation, answers it whole and deletes the row                                        |
+| 4    | x-core       | **revokes** the manager key it borrowed: nothing is left for it                                    |
+| 5    | this library | opens the propagation queue; the credential arrives on it and goes through `di.hmac.setCredential` |
+| 6    | this library | records the whole answer, `INSTALLED` included, in one `save`                                      |
+| 7    | this library | declares the consumer, signed, as every later boot does                                            |
 
 It is the only unsigned call this library ever makes, and it cannot be otherwise: what
 it collects is the credential a signature would be built from, so requiring one would
@@ -167,12 +183,13 @@ xcore.environment;
 // }
 ```
 
-The HMAC credential is NOT among them: it went to `di.hmac.setSecret`, into the store
+The HMAC credential is NOT among them: it arrives on the propagation queue and goes
+through `di.hmac.setCredential`, into the store
 that signs with it, and never onto a key/value shelf beside a broker password.
 
 The `RABBITMQ_*` and `HMAC_AMQP_*` keys are the application's propagation
 configuration, and wiring the consumer with them is still its own job - **this library
-holds no broker and never will**. What changed is that they are no longer transcribed
+opens the credential queue itself**, with `@naskot/node-hmac-auth-core-propagation` as its own dependency. What changed is that they are no longer transcribed
 by hand from a screen, which is the gesture people get wrong: left unwired, an
 application signs perfectly on its first boot and then misses every rotation. The
 secret is replaced in x-core, the event is published to a queue nobody reads, and what

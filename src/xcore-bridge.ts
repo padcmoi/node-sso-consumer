@@ -11,7 +11,16 @@ import { ENV, SsoEnvironment, mintSessionPassword, type XcoreEnvironmentStore } 
 import type { WebRequest, WebResponse } from "./http/web.js";
 import { SsoLiveAccounts } from "./session/live-accounts.js";
 import { SsoSessionService } from "./session/session.service.js";
-import { providerFor, type ProviderAddresses, type ProviderEnvironment, type ProviderOverride } from "./providers.js";
+import {
+  currentEnvironment,
+  PROVIDERS,
+  installTokenFor,
+  providerFor,
+  type InstallTokens,
+  type ProviderAddresses,
+  type ProviderConfig,
+} from "./providers.js";
+import { startPropagation } from "./propagation.js";
 import type { SsoLogger, SsoMe } from "./types.js";
 
 /**
@@ -53,36 +62,45 @@ export interface XcoreInjection {
  */
 export interface XcoreBridgeOptions {
   /**
-   * Which set of provider addresses to run against. Written down rather than
-   * configured: they vary per environment and not per deployment, and the one
-   * mistake they invite - the login window instead of the API - fails silently.
+   * The provider, one per environment, `dev` optional.
+   *
+   * `baseUrl` is the API WITH its port, and it is the one address an application
+   * writes itself: everything else comes back from the pairing, but one does not
+   * learn where to reach the provider from the provider. It has to be known before
+   * there is any right to call.
+   *
+   * THE PORT IS THE TRAP. The login window lives on the same names without one and
+   * answers `204 No Content` to anything it does not know, unsigned included - so an
+   * application pointed at it declares itself "successfully" at every boot, logs its
+   * own success, and nothing exists on the other side.
+   *
+   * Which of the two is used is READ from the process, never configured: the same
+   * configuration ships to both, and a key naming the environment would put the
+   * per-deployment edit back where it was.
+   *
+   * `dev` absent means this library stands down in development - see `ProviderConfig`.
    */
-  environment: ProviderEnvironment;
+  provider: ProviderConfig;
 
   /**
-   * The API, WITH its port. Required although the environment above already carries
-   * a default, and deliberately: the login window lives on the same names without
-   * one and answers `204` to anything it does not know, so an application pointed at
-   * it declares itself "successfully" at every boot while nothing exists on the
-   * other side. It is the one address whose mistake is silent, so it is the one an
-   * integrator has to have looked at and typed.
-   */
-  provider: ProviderOverride;
-
-  /**
-   * The pairing code minted on the console, and the ONE value an operator copies out
-   * of the whole flow.
+   * The pairing codes minted on the console, and the ONE thing an operator copies out
+   * of the whole flow - once per environment.
    *
-   * It stays here for the life of the application, and that is not an oversight:
-   * what decides whether the installation happens is not its presence but the
-   * `INSTALLED` key of `di.environment`. Until that reads true the boot exchanges it;
-   * once it does, the boot does not even look at it. The code is therefore never
-   * spent twice, there is nothing to remove from a configuration afterwards - the
-   * gesture people forget - and nothing to remember to call on the right boot.
+   * They stay here for the life of the application, and that is not an oversight:
+   * what decides whether the installation happens is not their presence but the
+   * `INSTALLED` key of `di.environment`. Until it reads true the boot exchanges the
+   * one for its environment; once it does, the boot does not even look at it. The
+   * code is therefore never spent twice, there is nothing to remove from a
+   * configuration afterwards - the gesture people forget - and nothing to remember to
+   * call on the right boot.
    *
-   * Only needed until the application is paired. One that already is may drop it.
+   * TWO CODES, unrelated: each is minted against its own x-core and brings back that
+   * ecosystem's queue, broker account and credential. One field for both would have
+   * meant installing production with the dev code, which succeeds silently.
+   *
+   * Only needed until the application is paired. One that already is may drop them.
    */
-  installToken?: string;
+  installToken?: InstallTokens;
 
   session?: {
     cookie?: SsoSessionServiceCookie;
@@ -149,8 +167,20 @@ const DEFAULT_STALE_AFTER_MS = 5 * 60 * 1000;
  * What stays the application's: the signer, its own addresses, and its handlers.
  */
 export class XcoreBridge {
-  /** The addresses this consumer actually runs against, resolved once. */
-  readonly provider: ProviderAddresses;
+  /** Which of the two this process is, read from the runtime and held. */
+  readonly runningIn = currentEnvironment();
+
+  /** The four addresses in use, whether or not this library is standing down. */
+  private readonly addresses: ProviderAddresses;
+
+  /**
+   * The addresses this consumer runs against, or `null` when it has none.
+   *
+   * Null is only ever the dev answer, and it means this library stands down: no
+   * pairing, no declaration, no SSO. `start()` returns without doing anything and
+   * the application carries on with whatever local login it has.
+   */
+  readonly provider: ProviderAddresses | null;
   readonly http: SsoHttpClient;
   readonly config: SsoConfigService;
   readonly auth: SsoAuthService;
@@ -174,11 +204,26 @@ export class XcoreBridge {
    */
   private readonly identity = new SsoEnvironment();
 
+  /**
+   * The credential queue, opened by `start()` and closed with the bridge.
+   *
+   * Null when there was nothing to open - a store with no broker in it, or a broker
+   * that would not answer. Both are logged loudly rather than thrown: the
+   * application keeps signing with what it already holds, and what it loses is the
+   * NEXT rotation, which is a failure that surfaces days later.
+   */
+  private propagation: Awaited<ReturnType<typeof startPropagation>> = null;
+
   constructor(private readonly options: XcoreBridgeOptions) {
-    this.provider = providerFor(options.environment, options.provider);
+    this.provider = providerFor(options.provider, this.runningIn);
+
+    // The address book still answers when this library is standing down: nothing
+    // below is used in that case, and half-built members would be a second state to
+    // reason about at every call site.
+    const addresses = (this.addresses = this.provider ?? PROVIDERS[this.runningIn]);
 
     this.http = new SsoHttpClient({
-      apiBase: this.provider.apiBase,
+      apiBase: addresses.apiBase,
       identity: this.identity,
       hmac: options.di.hmac,
       timeoutMs: options.timeoutMs,
@@ -187,7 +232,7 @@ export class XcoreBridge {
 
     this.config = new SsoConfigService({
       http: this.http,
-      frontUrl: this.provider.frontUrl,
+      frontUrl: addresses.frontUrl,
       identity: this.identity,
       retry: options.retry,
       logger: options.logger,
@@ -214,7 +259,7 @@ export class XcoreBridge {
         ? null
         : new SsoLiveAccounts({
             auth: this.auth,
-            realtimeUrl: this.provider.realtimeUrl,
+            realtimeUrl: addresses.realtimeUrl,
             // Called through the options object rather than handed over as a
             // reference, so a listener kept on its own `this` still finds it.
             onAccount: (userId, me) => options.di.onAccount?.(userId, me),
@@ -229,7 +274,7 @@ export class XcoreBridge {
 
     this.realtime = new SsoRealtimeBridge({
       auth: this.auth,
-      upstreamUrl: this.provider.realtimeUrl,
+      upstreamUrl: addresses.realtimeUrl,
       path: options.realtime?.path,
       tickets: options.realtime?.tickets,
       logger: options.logger,
@@ -247,7 +292,7 @@ export class XcoreBridge {
       },
       // Read through, never captured: the provider sends its own portal address at
       // pairing, and the address book is only what answers before it has.
-      portalUrl: () => this.identity.portalUrl ?? this.provider.portalUrl,
+      portalUrl: () => this.identity.portalUrl ?? addresses.portalUrl,
       basePath: options.routes?.basePath,
       afterLogin: options.routes?.afterLogin,
       logger: options.logger,
@@ -326,7 +371,7 @@ export class XcoreBridge {
   async follow(params: { accessToken: string; onAccount?(me: SsoMe): void; onSignedOut?(): void; topics?: string[] }) {
     const client = new SsoRealtimeClient({
       auth: this.auth,
-      url: this.provider.realtimeUrl,
+      url: this.addresses.realtimeUrl,
       // Called on the caller's own object, so a listener that is a method keeps
       // whatever `this` it was written against.
       onAccount: (me) => params.onAccount?.(me),
@@ -408,9 +453,31 @@ export class XcoreBridge {
    * trace back.
    */
   async start() {
+    // STANDING DOWN. No provider for this environment means there is nowhere to
+    // call: no pairing, no declaration, no SSO. It is not a failure and it does not
+    // throw - it is how an application says "not in dev", and what it does instead
+    // for signing anyone in is its own business.
+    if (!this.provider) {
+      this.options.logger?.info?.(
+        `[sso] no ${this.runningIn} provider configured: this library is standing down and will not sign anyone in`
+      );
+      return null;
+    }
+
     await this.load();
     if (!this.identity.installed) await this.pair();
     await this.ensureSessionPassword();
+
+    // BEFORE declaring, because declaring is signed and the credential arrives here.
+    // A freshly paired application holds nothing it can sign with until the queue
+    // has delivered - which is why `declare()` retries on `NO_CREDENTIAL` rather
+    // than failing the boot.
+    this.propagation = await startPropagation({
+      identity: this.identity,
+      hmac: this.options.di.hmac,
+      environment: this.options.di.environment,
+      logger: this.options.logger,
+    });
 
     return this.declare();
   }
@@ -442,18 +509,24 @@ export class XcoreBridge {
    * no longer looks at the code.
    */
   private async pair() {
-    const token = this.options.installToken?.trim();
+    const token = installTokenFor(this.options.installToken, this.runningIn);
     if (!token) {
       throw new SsoError(
         "NO_CREDENTIAL",
-        "This application is not paired and carries no install token: mint one on x-core's console, under Portails applicatifs, and put it in `installToken`"
+        `This application is not paired and carries no ${this.runningIn} install token: mint one on x-core's console, ` +
+          "under Portails applicatifs, and put it in `installToken`"
       );
     }
 
     const paired = await this.config.pair({ token });
-    // Written into the store that signs with it, and nowhere else: a credential has
-    // no business sitting in a key/value shelf beside a broker password.
-    await this.options.di.hmac.setSecret(paired.clientId, paired.secret);
+    // The secret this answer carries is NOT written anywhere, and that is not an
+    // omission. x-core stores `hashClientSecret(secret, pepper)` and verifies
+    // against that; the pepper is its own and never travels. An application that
+    // hashed this secret itself would store something else, sign with it, and
+    // collect a `401 BAD_SIGNATURE` on every call while holding the right secret.
+    //
+    // What signs is the hash x-core computed, and it only ever arrives on the
+    // propagation queue - which is why that queue is not a convenience.
 
     const values = {
       ...paired.environment,
@@ -484,7 +557,9 @@ export class XcoreBridge {
     const password = mintSessionPassword();
     await this.options.di.environment.save({ [ENV.SSO_SESSION_PASSWORD]: password });
     this.identity.hydrate({ ...this.identity.all, [ENV.SSO_SESSION_PASSWORD]: password });
-    this.options.logger?.warn?.("[sso] no session password in the store: a new one was minted, every existing cookie is now void");
+    this.options.logger?.warn?.(
+      "[sso] no session password in the store: a new one was minted, every existing cookie is now void"
+    );
   }
 
   /**
@@ -498,9 +573,14 @@ export class XcoreBridge {
   }
 
   /** Every socket, for a process shutting down. */
-  close() {
+  async close() {
     this.live?.close();
     this.provenAt.clear();
+    // The queue is the bridge's own: it opened it, it lets it go. A process that
+    // exits without closing leaves a consumer registered on the broker until the
+    // heartbeat times out, and the next boot finds two.
+    await this.propagation?.close?.();
+    this.propagation = null;
   }
 
   /** Everything this application holds in its own store, for whoever wires the broker. */

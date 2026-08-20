@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV } from "../src/environment.js";
 import { createXcoreBridge } from "../src/xcore-bridge.js";
 import { PROVIDERS } from "../src/providers.js";
@@ -7,14 +7,20 @@ import { API_BASE, aPairing, paired, readOnlyHmac, stubEnvironment, stubHmac, st
 const CONFIG_PATH = "/api/v1/sso/consumer/config";
 const INSTALL_PATH = "/api/v1/portal/install";
 
+// Which environment the bridge runs against is READ from the process rather than
+// configured, so a test that wants the prod provider says so the way a deployment
+// does. Everything here asserts against `PROVIDERS.prod`.
+beforeEach(() => {
+  vi.stubEnv("NODE_ENV", "production");
+});
+
 /**
  * A bridge on a store that already holds a paired application, which is what every
  * boot after the first one looks like.
  */
 const bridgeFor = (provider: ReturnType<typeof stubProvider>, overrides: Partial<Parameters<typeof createXcoreBridge>[0]> = {}) =>
   createXcoreBridge({
-    environment: "prod",
-    provider: API_BASE,
+    provider: { prod: { baseUrl: API_BASE } },
     // Nothing may open a socket in a test: the accounts are followed on demand.
     live: { enabled: false },
     retry: { attempts: 1, delayMs: 0 },
@@ -27,9 +33,8 @@ const freshBridge = (provider: ReturnType<typeof stubProvider>, overrides: Recor
   const store = stubEnvironment();
   const hmac = stubHmac(provider);
   const bridge = createXcoreBridge({
-    environment: "prod",
-    provider: API_BASE,
-    installToken: "the-code",
+    provider: { prod: { baseUrl: API_BASE } },
+    installToken: { prod: "the-code" },
     live: { enabled: false },
     retry: { attempts: 1, delayMs: 0 },
     di: { hmac, environment: store },
@@ -38,23 +43,27 @@ const freshBridge = (provider: ReturnType<typeof stubProvider>, overrides: Recor
   return { bridge, store, hmac };
 };
 
+// `provider` is null only when this library is standing down, and none of these
+// bridges is: they all name a prod endpoint, and the environment is stubbed to prod.
+const addressesOf = (bridge: ReturnType<typeof createXcoreBridge>) => bridge.provider ?? PROVIDERS.dev;
+
 describe("the addresses it runs against", () => {
-  it("takes the API as a bare string and keeps the environment's other three", () => {
+  it("takes the API as `baseUrl` and keeps the environment's other three", () => {
     const bridge = bridgeFor(stubProvider());
 
-    expect(bridge.provider.apiBase).toBe(API_BASE);
-    expect(bridge.provider.portalUrl).toBe(PROVIDERS.prod.portalUrl);
-    expect(bridge.provider.realtimeUrl).toBe(PROVIDERS.prod.realtimeUrl);
+    expect(addressesOf(bridge).apiBase).toBe(API_BASE);
+    expect(addressesOf(bridge).portalUrl).toBe(PROVIDERS.prod.portalUrl);
+    expect(addressesOf(bridge).realtimeUrl).toBe(PROVIDERS.prod.realtimeUrl);
   });
 
   it("lets an object override the lot, for another ecosystem", () => {
     const bridge = bridgeFor(stubProvider(), {
-      provider: { apiBase: "https://other.example:1", portalUrl: "https://other.example/portal" },
+      provider: { prod: { baseUrl: "https://other.example:1", portalUrl: "https://other.example/portal" } },
     });
 
-    expect(bridge.provider.apiBase).toBe("https://other.example:1");
-    expect(bridge.provider.portalUrl).toBe("https://other.example/portal");
-    expect(bridge.provider.frontUrl).toBe(PROVIDERS.prod.frontUrl);
+    expect(addressesOf(bridge).apiBase).toBe("https://other.example:1");
+    expect(addressesOf(bridge).portalUrl).toBe("https://other.example/portal");
+    expect(addressesOf(bridge).frontUrl).toBe(PROVIDERS.prod.frontUrl);
   });
 });
 
@@ -72,9 +81,13 @@ describe("the boot: read, pair if it must, declare", () => {
 
     await bridge.start();
 
-    // The credential goes to the store that SIGNS with it, never onto the key/value
-    // shelf beside a broker password.
-    expect(hmac.written).toEqual([{ clientId: "oauth-test", secret: "the-secret" }]);
+    // NOTHING is written into the credential store here, and that is not an
+    // omission. x-core keeps `hashClientSecret(secret, pepper)` and verifies against
+    // that; the pepper never travels, so an application that hashed the secret this
+    // answer carries would store something else and collect a `401` on every call
+    // while holding the right secret. What signs is the hash x-core computed, and it
+    // only ever arrives on the propagation queue.
+    expect(hmac.written).toEqual([]);
     expect(provider.calls("POST", INSTALL_PATH)).toHaveLength(1);
 
     expect(store.held[ENV.INSTALLED]).toBe(true);
@@ -119,7 +132,7 @@ describe("the boot: read, pair if it must, declare", () => {
 
     // The code stays in the configuration for the life of the application: what
     // decides is the key, not its presence.
-    await bridgeFor(provider, { installToken: "the-code" }).start();
+    await bridgeFor(provider, { installToken: { prod: "the-code" } }).start();
 
     expect(provider.calls("POST", INSTALL_PATH)).toHaveLength(0);
   });
@@ -127,25 +140,26 @@ describe("the boot: read, pair if it must, declare", () => {
   it("refuses to boot an unpaired application that carries no code, and says where to get one", async () => {
     const { bridge } = freshBridge(stubProvider(), { installToken: undefined });
 
-    await expect(bridge.start()).rejects.toThrow(/not paired and carries no install token/);
+    await expect(bridge.start()).rejects.toThrow(/not paired and carries no prod install token/);
   });
 
-  it("refuses a pairing it has nowhere to write the credential to", async () => {
+  // A store that can only be written into by the broker is what every consumer has,
+  // and the pairing has to be fine with it: it writes no credential at all.
+  it("pairs into a credential store it may not write to", async () => {
     const provider = answering();
     const store = stubEnvironment();
     const bridge = createXcoreBridge({
-      environment: "prod",
-      provider: API_BASE,
-      installToken: "the-code",
+      provider: { prod: { baseUrl: API_BASE } },
+      installToken: { prod: "the-code" },
       live: { enabled: false },
       retry: { attempts: 1, delayMs: 0 },
       di: { hmac: readOnlyHmac(provider), environment: store },
     });
 
-    await expect(bridge.start()).rejects.toThrow(/can only receive a credential/);
-    // And nothing was recorded: an application that believed itself paired without a
-    // credential would never try again.
-    expect(store.held[ENV.INSTALLED]).toBeUndefined();
+    await bridge.start();
+
+    expect(store.held[ENV.INSTALLED]).toBe(true);
+    expect(store.held[ENV.HMAC_AMQP_QUEUE]).toBe("app-prod");
   });
 
   // Deleting that key is how an operator signs everyone out at once, so a boot
@@ -157,8 +171,7 @@ describe("the boot: read, pair if it must, declare", () => {
     const warn = vi.fn();
 
     await createXcoreBridge({
-      environment: "prod",
-      provider: API_BASE,
+      provider: { prod: { baseUrl: API_BASE } },
       live: { enabled: false },
       retry: { attempts: 1, delayMs: 0 },
       logger: { warn },

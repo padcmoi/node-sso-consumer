@@ -1,10 +1,10 @@
 /**
- * Where the identity provider answers, written down.
+ * Where the identity provider answers, and which one this process runs against.
  *
- * Not read from an environment, and that is the point rather than a shortcut. The
- * four addresses below do not vary per deployment - they vary per ENVIRONMENT, and
- * there are two - so an application configuring them is an application given the
- * chance to get them wrong, in the one way that fails silently:
+ * Three of the four addresses below do not vary per deployment - they vary per
+ * ENVIRONMENT, and there are two - so they are written down here rather than
+ * configured. The fourth, the API, IS configured, and deliberately: it is the one
+ * whose mistake is silent.
  *
  *   https://x-sso.gestionpratique.ovh          the login window. NOT the API.
  *   https://x-core.gestionpratique.ovh:13001   the API. THIS is the base.
@@ -12,10 +12,7 @@
  * They differ by a port, and the login window answers `204 No Content` to anything
  * it does not know, unsigned included. So an application pointed at it declares
  * itself "successfully" at every boot, logs its own success, and nothing exists on
- * the other side. A value living in a `.env` is a value nobody can check by
- * reading the code; these can be read here.
- *
- * An application on another ecosystem passes `provider` and overrides the lot.
+ * the other side.
  */
 export interface ProviderAddresses {
   /** The API. WITH its port. */
@@ -47,24 +44,79 @@ export const PROVIDERS: Record<ProviderEnvironment, ProviderAddresses> = {
 };
 
 /**
- * What an application may write in place of the set above.
+ * One environment's provider, as an application writes it.
  *
- * A bare string is the API - the one address worth writing down beside the code
- * that uses it, and the only one whose mistake is silent. Everything else keeps
- * the environment's value unless an object names it.
+ * `baseUrl` is the API with its port, and it is the only required field: it is the
+ * one address an integrator has to have looked at and typed. The other three keep
+ * the address book's values unless this names them, which is what an application on
+ * another ecosystem does.
  */
-export type ProviderOverride = string | Partial<ProviderAddresses>;
+export interface ProviderEndpoint extends Partial<Omit<ProviderAddresses, "apiBase">> {
+  baseUrl: string;
+}
 
 /**
- * The set an application runs against, with anything it overrides on top.
+ * One provider per environment, and `dev` may be absent.
  *
- * An application may deliberately be told to use the PROD provider in both of its
- * own environments - one account list, one set of permissions, one place to grant
- * them - and that is a decision, not a mistake to correct. It is spelled by naming
- * `prod` while deploying to dev, which reads as what it is.
+ * ITS ABSENCE IS A DECISION rather than a hole. Without a dev address there is
+ * nowhere to call, so this library stands down in development: no pairing, no
+ * declaration, no SSO. It does not throw - a missing key here is how an application
+ * says "not in dev", and what it does instead with its own local login is its own
+ * business.
+ *
+ * `prod` is not optional. It is the environment that always exists.
  */
-export const providerFor = (environment: ProviderEnvironment, override?: ProviderOverride) => {
-  const overrides = typeof override === "string" ? { apiBase: override } : override;
-  const addresses: ProviderAddresses = { ...PROVIDERS[environment], ...overrides };
-  return addresses;
-};
+export interface ProviderConfig {
+  dev?: ProviderEndpoint;
+  prod: ProviderEndpoint;
+}
+
+/**
+ * Which environment this process is, read rather than configured.
+ *
+ * READ, because the whole point of a pair of providers and a pair of pairing codes
+ * is that the same configuration ships to both. A key naming the environment would
+ * put the edit back where it was: one line to change at every deployment, and a
+ * deployment that forgets it installs production against the dev provider.
+ *
+ * Anything that is not a production build is `dev`, which is the safe way round: a
+ * developer's machine offering to install into production is the wrong default to
+ * get wrong.
+ */
+export const currentEnvironment = () => (process.env.NODE_ENV === "production" ? "prod" : "dev") satisfies ProviderEnvironment;
+
+/**
+ * The addresses this process runs against, or `null` when it has none.
+ *
+ * `null` is only ever the dev answer, and it means the library stands down. Every
+ * caller has to read it as a state rather than as a failure, which is why it is a
+ * value and not a throw.
+ */
+export function providerFor(config: ProviderConfig, environment: ProviderEnvironment) {
+  const endpoint = environment === "prod" ? config.prod : config.dev;
+  if (!endpoint) return null;
+
+  const { baseUrl, ...overrides } = endpoint;
+  return { ...PROVIDERS[environment], ...overrides, apiBase: baseUrl } satisfies ProviderAddresses;
+}
+
+/**
+ * The pairing code for this process, or nothing.
+ *
+ * TWO CODES, unrelated to each other: each is minted on its own console, against its
+ * own x-core, and brings back the queue, the broker account and the credential of
+ * that ecosystem. One field for both would have meant editing the configuration at
+ * every deployment - or worse, installing production with the dev code, which
+ * succeeds silently and wires the application to the wrong provider.
+ *
+ * `dev` follows the provider's: without a dev address there is nothing to pair
+ * against, so there is nothing to put there. One switch, not two - two keys deciding
+ * the same thing are two keys that end up contradicting each other.
+ */
+export interface InstallTokens {
+  dev?: string;
+  prod: string;
+}
+
+export const installTokenFor = (tokens: InstallTokens | undefined, environment: ProviderEnvironment) =>
+  (environment === "prod" ? tokens?.prod : tokens?.dev)?.trim() || null;

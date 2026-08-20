@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { vi } from "vitest";
 import { ENV, SsoEnvironment } from "../src/environment.js";
-import type { HttpAnswer, SignedFetch, XcoreHmacInjection } from "../src/http.js";
+import type { HttpAnswer, XcoreHmacInjection } from "../src/http.js";
 import type { CookieJar, CookieOptions } from "../src/session/session.service.js";
 import type { SsoMe } from "../src/types.js";
 
@@ -31,10 +31,11 @@ export interface StubAnswer {
  * happens on the first call and what happens on the second - which is the whole of
  * what the rotation, the retry and the dedup paths need.
  *
- * Two faces, because the library has two transports and that is deliberate: the
- * SIGNED one it is handed, and the global `fetch` it uses for the single unsigned
- * call - redeeming a pairing code, which cannot be signed with a credential it does
- * not have yet. `install()` on this object stubs the global so both land here.
+ * ONE face, because the library now has one transport. It signs with
+ * `signedHttpFetch` from `@naskot/node-hmac-auth-core`, which reaches for the global
+ * `fetch` - and so does the single unsigned call, redeeming a pairing code that
+ * cannot be signed with a credential it does not hold yet. So the global is where a
+ * test intercepts, and `x-client-id` says which identity signed.
  */
 export const stubProvider = () => {
   const queued = new Map<string, StubAnswer[]>();
@@ -58,13 +59,20 @@ export const stubProvider = () => {
     return Promise.resolve(answer);
   };
 
-  const signed: SignedFetch = (url, init) => {
-    seen.push({ url, method: init.method, headers: init.headers, body: init.body, clientId: init.clientId });
-    return answerFor(init.method, url);
-  };
+  const intercept = () =>
+    vi.stubGlobal("fetch", (url: string, init: { method?: string; headers?: unknown; body?: string } = {}) => {
+      const method = init.method ?? "GET";
+      // `signedHttpFetch` hands a `Headers`; the unsigned call hands a plain object.
+      const headers: Record<string, string> = {};
+      if (init.headers instanceof Headers) init.headers.forEach((value, name) => (headers[name] = value));
+      else Object.assign(headers, init.headers ?? {});
+      seen.push({ url, method, headers, body: init.body, clientId: headers["x-client-id"] });
+      return answerFor(method, url);
+    });
+
+  intercept();
 
   return {
-    fetch: signed,
     seen,
     /** Queue one answer for the next call on that route. */
     on(method: string, path: string, answer: StubAnswer) {
@@ -79,11 +87,7 @@ export const stubProvider = () => {
      * would mean holding the credential it exists to collect.
      */
     global() {
-      vi.stubGlobal("fetch", (url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) => {
-        const method = init.method ?? "GET";
-        seen.push({ url, method, headers: init.headers ?? {}, body: init.body });
-        return answerFor(method, url);
-      });
+      intercept();
       return this;
     },
     /** What travelled, for asserting on a signature or a header. */
@@ -104,24 +108,28 @@ export const stubProvider = () => {
  * what a test proves here is that the right identity reached the transport - not
  * that a signature is correct, which is that package's own suite.
  */
-export const stubHmac = (provider: ReturnType<typeof stubProvider>) => {
+export const stubHmac = (_provider?: ReturnType<typeof stubProvider>) => {
   const written: { clientId: string; secret: string }[] = [];
 
-  const hmac: XcoreHmacInjection & { written: typeof written } = {
-    fetch: (url, init) => provider.fetch(url, { ...init, headers: { ...init.headers, "x-client-id": init.clientId } }),
-    signHeaders: (request) => ({ "x-client-id": "signed", "x-signature": `${request.method} ${request.url}` }),
-    setSecret: (clientId, secret) => {
-      written.push({ clientId, secret });
+  const held = new Map<string, string>([["oauth-test", "the-stored-hash"]]);
+
+  const hmac: XcoreHmacInjection & { written: typeof written; held: typeof held } = {
+    getCredential: (clientId) => held.get(clientId) ?? null,
+    setCredential: (clientId, secretHash) => {
+      held.set(clientId, secretHash);
+      written.push({ clientId, secret: secretHash });
     },
+    deleteCredential: (clientId) => void held.delete(clientId),
     written,
+    held,
   };
   return hmac;
 };
 
 /** A credential store nobody can write into, as an app fed over the broker has. */
-export const readOnlyHmac = (provider: ReturnType<typeof stubProvider>) => {
+export const readOnlyHmac = (provider?: ReturnType<typeof stubProvider>) => {
   const hmac = stubHmac(provider);
-  hmac.setSecret = () => {
+  hmac.setCredential = () => {
     throw new Error("this HMAC runtime can only receive a credential, not write one");
   };
   return hmac;
