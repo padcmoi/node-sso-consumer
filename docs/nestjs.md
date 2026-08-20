@@ -47,7 +47,7 @@ remember to call on the right boot.
 ```ts
 // Built by the application, over its own Redis. It never enters this library.
 import { hmacInstance } from "./hmac";
-import { createXcoreBridge } from "@naskot/node-sso-consumer";
+import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 import { Injectable, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { settings } from "./settings";
 import { accountStore } from "./account-store";
@@ -171,7 +171,7 @@ One guard for both doors: it resolves the session, puts it on the request, then 
 ```ts
 import { CanActivate, ExecutionContext, Injectable, SetMetadata } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { SsoError } from "@naskot/node-sso-consumer";
+import { SsoError } from "@gestionpratique/node-sso-consumer";
 import { XcoreService } from "./xcore.service";
 
 export const PERMISSIONS = "sso:permissions";
@@ -215,7 +215,7 @@ The distinction that matters: `FORBIDDEN` is about the ACCOUNT and must not be r
 
 ```ts
 import { ArgumentsHost, Catch, ExceptionFilter } from "@nestjs/common";
-import { SsoError } from "@naskot/node-sso-consumer";
+import { SsoError } from "@gestionpratique/node-sso-consumer";
 import { XcoreService } from "./xcore.service";
 
 @Catch(SsoError)
@@ -279,7 +279,7 @@ export class XcoreModule implements NestModule {
 import { Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
 // Imported once anywhere in the app, for its effect: it is what puts `req.me` on
 // the request type, so this file reads it without reaching for `any`.
-import "@naskot/node-sso-consumer/express";
+import "@gestionpratique/node-sso-consumer/express";
 import { XcoreGuard, RequirePermissions } from "../sso/xcore.guard";
 import { XcoreService } from "../sso/xcore.service";
 
@@ -326,7 +326,7 @@ app.get(XcoreService).bridge.realtime.attach(app.getHttpServer());
 
 ## 7) The page
 
-The browser half is the library's too - see [the Express guide](./express.md#5-the-page) for `@naskot/node-sso-consumer/client`, which is the same file whatever serves it.
+The browser half is the library's too - see [the Express guide](./express.md#5-the-page) for `@gestionpratique/node-sso-consumer/client`, which is the same file whatever serves it.
 
 ## 8) Production notes
 

@@ -1,4 +1,4 @@
-# @naskot/node-sso-consumer
+# @gestionpratique/node-sso-consumer
 
 What a Node application needs to **be** a consumer of the x-core SSO, rather than to build one.
 
@@ -81,13 +81,13 @@ and overrides the lot.
 ## Install
 
 ```bash
-npm i @naskot/node-sso-consumer
+npm i @gestionpratique/node-sso-consumer
 ```
 
 ## Quick start
 
 ```ts
-import { createXcoreBridge } from "@naskot/node-sso-consumer";
+import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 // Built by the application, over its own Redis. It never enters this library.
 import { hmacInstance } from "./hmac";
 
@@ -214,10 +214,10 @@ Following an account is what makes the reads reactive: a permission granted or r
 
 ## The browser half
 
-A page holds no SSO code either. `@naskot/node-sso-consumer/client` reads the session, asks for a ticket, dials this host's socket, reconnects, and tells a session that is over from a connection that dropped:
+A page holds no SSO code either. `@gestionpratique/node-sso-consumer/client` reads the session, asks for a ticket, dials this host's socket, reconnects, and tells a session that is over from a connection that dropped:
 
 ```ts
-import { createSsoClient } from "@naskot/node-sso-consumer/client";
+import { createSsoClient } from "@gestionpratique/node-sso-consumer/client";
 
 const sso = createSsoClient({
   basePath: "/api/auth",
@@ -230,7 +230,7 @@ if (!me) location.assign("/api/auth/sso/start");
 if (sso.can("infrastructure:delete-queues")) deleteButton.hidden = false;
 ```
 
-`@naskot/node-sso-consumer/express` is a third entry, imported once for its effect: it declares `req.me`, `req.ssoTokens` and `req.ssoUserId` on the framework's own request type.
+`@gestionpratique/node-sso-consumer/express` is a third entry, imported once for its effect: it declares `req.me`, `req.ssoTokens` and `req.ssoUserId` on the framework's own request type.
 
 ## Integration guides
 

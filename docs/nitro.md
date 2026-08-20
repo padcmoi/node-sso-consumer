@@ -47,7 +47,7 @@ remember to call on the right boot.
 ```ts
 // Built by the application, over its own Redis. It never enters this library.
 import { hmacInstance } from "./hmac";
-import { createXcoreBridge } from "@naskot/node-sso-consumer";
+import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 import { settings } from "./settings";
 import { accountStore } from "./account-store";
 
@@ -262,8 +262,8 @@ In dev, Nitro reloads the server on every change: hand a shared ticket store, or
 `app/composables/useSso.ts` - the browser half, which is also the library's.
 
 ```ts
-import { createSsoClient, type SsoBrowserClient } from "@naskot/node-sso-consumer/client";
-import type { SsoMe } from "@naskot/node-sso-consumer";
+import { createSsoClient, type SsoBrowserClient } from "@gestionpratique/node-sso-consumer/client";
+import type { SsoMe } from "@gestionpratique/node-sso-consumer";
 
 const account = ref<SsoMe | null>(null);
 const connected = ref(false);

@@ -9,7 +9,7 @@
  *
  * Imported for its EFFECT and nothing else, once, anywhere in an application:
  *
- *   import "@naskot/node-sso-consumer/express";
+ *   import "@gestionpratique/node-sso-consumer/express";
  *
  * A subpath rather than the main entry, because it is a global declaration: an
  * application on Fastify or Nitro has no `Express.Request` to augment and has no

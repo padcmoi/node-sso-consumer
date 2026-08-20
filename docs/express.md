@@ -46,7 +46,7 @@ remember to call on the right boot.
 ```ts
 // Built by the application, over its own Redis. It never enters this library.
 import { hmacInstance } from "./hmac";
-import { createXcoreBridge } from "@naskot/node-sso-consumer";
+import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 import { settings } from "./settings";
 import { accountStore } from "./account-store";
 
@@ -157,7 +157,7 @@ dependency, and an application writes no AMQP at all. That queue is not a conven
 import express from "express";
 import { createServer } from "node:http";
 // Imported once, for its effect: it is what puts `req.me` on Express's own type.
-import "@naskot/node-sso-consumer/express";
+import "@gestionpratique/node-sso-consumer/express";
 import { createXcore } from "./sso/xcore.service";
 import { queueRoutes } from "./routes/queues.routes";
 import { accountRoutes } from "./routes/account.routes";
@@ -292,7 +292,7 @@ export const accountRoutes = (xcore: Xcore) => {
 `src/public/app.js` - the browser half, which is also the library's.
 
 ```js
-import { createSsoClient } from "@naskot/node-sso-consumer/client";
+import { createSsoClient } from "@gestionpratique/node-sso-consumer/client";
 
 const sso = createSsoClient({
   basePath: "/api/auth",
