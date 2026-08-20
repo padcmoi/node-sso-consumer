@@ -1,3 +1,4 @@
+import { buildHttpSignedHeaders, signedHttpFetch } from "@naskot/node-hmac-auth-core";
 import { SsoError } from "./errors.js";
 import type { SsoEnvironment } from "./environment.js";
 import type { SsoLogger } from "./types.js";
@@ -11,53 +12,48 @@ export interface HttpAnswer {
 }
 
 /**
- * What this library is handed to reach the provider, and it arrives SIGNED.
+ * Everything that touches this application's HMAC credential, as TWO FUNCTIONS.
  *
- * `init` carries the `clientId` this call must be signed as: the library holds it -
- * from what the pairing brought back, or from `environment.load()` - and hands it
- * over on every call. The application adds its own secret and nothing else, which is
- * why no secret ever crosses this library.
+ * Functions, and never the credential store itself. The store is a third party -
+ * `@naskot/node-hmac-auth-core` over the application's own Redis - and an object
+ * handed across this boundary is an object this library holds, transports and
+ * depends on: the day that package renames a method, every application using this
+ * one waits for a release. A function moves the break into the application's own
+ * file, where it is one line.
  *
- * A real `Response` satisfies this: only `status`, `ok` and `text()` are ever read.
- */
-export type SignedFetch = (
-  url: string,
-  init: { method: HttpMethod; headers: Record<string, string>; body?: string; clientId: string; signal?: AbortSignal }
-) => Promise<HttpAnswer>;
-
-/**
- * The headers proving this application signed that exact request.
+ * So this library names no method of that package. It knows two moments - "give me
+ * the current hash", "store this one" - and the application knows how.
  *
- * Its own entry rather than a use of the transport above, because a WebSocket
- * UPGRADE is not a fetch: it is an HTTP GET that asks to be promoted, the provider
- * verifies it before a socket exists, and what the dialer needs is the headers
- * themselves rather than an answer to a request.
- *
- * Signing it is the same act as signing a call, so it is the same code on the
- * application's side - `buildHttpSignedHeaders` from `@naskot/node-hmac-auth`.
- */
-export type SignHeaders = (request: {
-  method: HttpMethod;
-  url: string;
-  body: string;
-}) => Promise<Record<string, string>> | Record<string, string>;
-
-/**
- * Everything that touches this application's HMAC credential, in one place.
- *
- * The three belong together because they are one object seen from three sides:
- * signing a call with it, signing an upgrade with it, and writing it down when the
- * pairing brings it. Split apart they would read as three unrelated favours.
+ * No secret crosses either way. A HASH is asked for and a HASH is stored: x-core
+ * keeps `hashClientSecret(secret, pepper)` and verifies against that, the pepper
+ * never travels, and a consumer that hashed the raw secret itself would sign with
+ * something else entirely and collect a `401` on every call while holding the right
+ * secret.
  */
 export interface XcoreHmacInjection {
-  fetch: SignedFetch;
-  signHeaders: SignHeaders;
   /**
-   * Write the credential the pairing just brought back, once in the life of the
-   * application. The only write, and what makes the two above able to sign at every
-   * boot after this one.
+   * The current hash for this identity, READ ON EVERY SIGNED CALL and never
+   * captured: the credential is replaced by propagation, and a client built once at
+   * boot would sign with the old one until the next restart - which surfaces as a
+   * `401` on everything, with nothing naming the cause.
    */
-  setSecret(clientId: string, secret: string): Promise<void> | void;
+  getCredential(clientId: string): Promise<string | null | undefined> | string | null | undefined;
+
+  /**
+   * Store what arrived, which is always a hash x-core computed.
+   *
+   * Called on every rotation the propagation queue carries, and that queue is not a
+   * convenience: it is how a paired application gets a key that verifies at all.
+   */
+  setCredential(clientId: string, secretHash: string): Promise<void> | void;
+
+  /**
+   * Forget an identity, when the provider says it is gone.
+   *
+   * Optional: an application that never deletes anything simply leaves a dead
+   * credential in its store, which signs nothing because the far side refuses it.
+   */
+  deleteCredential?(clientId: string): Promise<void> | void;
 }
 
 export interface SsoHttpOptions {
@@ -123,9 +119,47 @@ export class SsoHttpClient {
     }
   }
 
-  /** The headers that open the realtime socket, signed as this application. */
-  signHeaders(request: { method: HttpMethod; url: string; body?: string }) {
-    return this.options.hmac.signHeaders({ method: request.method, url: request.url, body: request.body ?? "" });
+  /**
+   * The headers that open the realtime socket, signed as this application.
+   *
+   * Its own path rather than a use of `call` below, because a WebSocket UPGRADE is
+   * not a fetch: it is a GET asking to be promoted, the provider verifies it before
+   * a socket exists, and what the dialer needs is the headers themselves rather
+   * than an answer to a request. Same act, same code.
+   */
+  async signHeaders(request: { method: HttpMethod; url: string; body?: string }) {
+    const headers: Record<string, string> = {};
+    buildHttpSignedHeaders({
+      method: request.method,
+      url: request.url,
+      body: request.body ?? "",
+      clientId: this.options.identity.clientId,
+      secret: await this.credential(),
+      secretIsHashed: true,
+    }).forEach((value, key) => (headers[key] = value));
+    return headers;
+  }
+
+  /**
+   * The hash to sign with, asked for at the moment of signing.
+   *
+   * Never held: `getCredential` is the application's own read, and calling it each
+   * time is what makes a rotation apply to the very next call rather than to the
+   * next restart.
+   */
+  private async credential() {
+    const clientId = this.options.identity.clientId;
+    if (!clientId) throw new SsoError("NO_CREDENTIAL", "This application has no identity yet: nothing to sign as");
+
+    const hash = await this.options.hmac.getCredential(clientId);
+    if (!hash) {
+      throw new SsoError(
+        "NO_CREDENTIAL",
+        `No credential stored for ${clientId}. It arrives on the propagation queue, so this is what an application ` +
+          `that has paired but never heard from the broker looks like.`
+      );
+    }
+    return hash;
   }
 
   /**
@@ -177,14 +211,17 @@ export class SsoHttpClient {
 
     let answer: HttpAnswer;
     try {
-      answer = await this.options.hmac.fetch(url, {
+      // Built per call rather than once at construction. `signedHttpFetch` is the
+      // same code that signs everywhere else in the ecosystem, so there is no second
+      // implementation of the protocol here to drift from the one that verifies in
+      // front - and the hash it signs with is read now, not captured at boot.
+      answer = await signedHttpFetch(url, {
         method,
         headers,
         body: payload || undefined,
-        // Handed over on every call rather than captured once: it is read from the
-        // store at boot, and an application that captured it before that would sign
-        // as nobody.
         clientId: this.options.identity.clientId,
+        secret: await this.credential(),
+        secretIsHashed: true,
         signal: AbortSignal.timeout(this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
       });
     } catch (cause) {

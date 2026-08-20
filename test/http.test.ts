@@ -116,7 +116,9 @@ describe("the signed channel", () => {
 
   describe("the one unsigned call", () => {
     it("carries the pairing code in a header and no signature at all", async () => {
-      const provider = stubProvider().on("POST", "/api/v1/portal/install", { body: { data: { secret: "s" } } }).global();
+      const provider = stubProvider()
+        .on("POST", "/api/v1/portal/install", { body: { data: { secret: "s" } } })
+        .global();
       const client = clientFor(provider);
 
       await client.unsigned("/api/v1/portal/install", "POST", { clientId: "oauth-test" }, { "x-install-token": "code" });

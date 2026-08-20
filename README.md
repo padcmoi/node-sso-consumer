@@ -45,8 +45,10 @@ application's business, and always was.
 
 ## Two environments, and neither is a setting
 
-`environment: "dev" | "prod"` picks a set of four addresses that are **written down in
-the code**, not read from anywhere:
+Which environment a process runs against is **read from `NODE_ENV`**, never
+configured: the same configuration ships to both, and a key naming the environment
+would put the per-deployment edit back where it was. Three of the four addresses are
+**written down in the code**; the fourth, the API, is the one an application types:
 
 |              | dev                               | prod                               |
 | ------------ | --------------------------------- | ---------------------------------- |
@@ -60,16 +62,21 @@ configuration. And the mistake they invite is the one that fails silently: the A
 the login window differ by a port, and the login window answers `204 No Content` to
 anything it does not know. An application pointed at it declares itself
 "successfully" at every boot, logs its own success, and nothing exists on the other
-side. `provider` is required for exactly that reason - it is the one address an
-integrator has to have looked at and typed, and `declare()` refuses a base that does
-not reject an unsigned call with a `401`.
+side. `provider.<env>.baseUrl` is required for exactly that reason - it is the one
+address an integrator has to have looked at and typed, and `declare()` refuses a base
+that does not reject an unsigned call with a `401`.
 
-Naming `prod` while deploying to a dev machine is legitimate and reads as what it is:
-one account list, one set of permissions, one place to grant them, shared across both
-of an application's own environments.
+`provider.dev` is **optional, and its absence is a decision**. Without a dev address
+there is nowhere to call, so this library stands down in development: no pairing, no
+declaration, no SSO. It does not throw - that is how an application says "not in dev",
+and it keeps whatever local login it has. `installToken.dev` follows the same switch.
 
-An application on another ecosystem passes an object as `provider` and overrides all
-four.
+`installToken` is a pair for the same reason the provider is: a code is minted against
+one x-core and means nothing against the other. One field for both would have meant
+installing production with the dev code, which succeeds silently.
+
+An application on another ecosystem names the other three addresses beside `baseUrl`
+and overrides the lot.
 
 ## Install
 
@@ -80,26 +87,42 @@ npm i @naskot/node-sso-consumer
 ## Quick start
 
 ```ts
-import { signedHttpFetch, buildHttpSignedHeaders } from "@naskot/node-hmac-auth";
 import { createXcoreBridge } from "@naskot/node-sso-consumer";
+// Built by the application, over its own Redis. It never enters this library.
+import { hmacInstance } from "./hmac";
 
 export const xcore = createXcoreBridge({
-  environment: "prod",
-  // WITH its port: the login window lives on the same name without one and
-  // answers 204 to anything, so a mistake here fails silently.
-  provider: "https://x-core.example.com:13001/",
-  // The ONE value copied by hand, from the screen that mints it. It stays here for
-  // the life of the application: what decides whether the pairing happens is the
-  // `INSTALLED` key below, not the presence of this code.
-  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+  // WITH its port: the login window lives on the same names without one and answers
+  // 204 to anything, so a mistake here fails silently. One per environment, and
+  // which one is read from `NODE_ENV`. Drop `dev` to stand this library down there.
+  provider: {
+    dev: { baseUrl: "https://d-sso.example.com:13001" },
+    prod: { baseUrl: "https://x-core.example.com:13001" },
+  },
+  // The ONE value copied by hand, from the screen that mints it - one per
+  // environment. It stays here for the life of the application: what decides whether
+  // the pairing happens is the `INSTALLED` key, not the presence of this code.
+  installToken: {
+    dev: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+    prod: "8hK2mQx_pT4vN9wZaLbYcRdEfGhJkMnPqSt7UvWx1Yz",
+  },
   routes: { basePath: "/api/auth", afterLogin: "/" },
 
   // Everything this application LENDS, in one key and nowhere else.
   di: {
+    // TWO FUNCTIONS, and the HMAC instance never crosses. This library names no
+    // method of `@naskot/node-hmac-auth-core`: it knows two moments - "give me the
+    // current hash", "store this one" - and your code knows how. The day that
+    // package renames a method, what breaks is this line, here.
+    //
+    // A HASH both ways. x-core keeps `hashClientSecret(secret, pepper)` and verifies
+    // against that, and the pepper never travels: an application that hashed the raw
+    // secret itself would sign with something else and collect a 401 on every call.
+    // What signs is the hash x-core computed, and it arrives on the propagation queue
+    // this library consumes for you.
     hmac: {
-      fetch: async (url, init) => signedHttpFetch(url, { ...init, secret: await hmacRuntime.secretHash(), secretIsHashed: true }),
-      signHeaders: (request) => sign(request),
-      setSecret: (clientId, secret) => hmacRuntime.clients.setSecret(clientId, secret),
+      getCredential: (clientId) => hmacInstance.clients.getSecretHash(clientId),
+      setCredential: (clientId, secretHash) => hmacInstance.clients.setSecretHash(clientId, secretHash),
     },
     environment: {
       load: () => settings.all(),

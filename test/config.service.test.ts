@@ -125,7 +125,9 @@ describe("declaring this application at boot", () => {
 
 describe("redeeming a pairing code", () => {
   it("sends it unsigned and with NO body, and lays the answer out as the store's own keys", async () => {
-    const provider = stubProvider().on("POST", "/api/v1/portal/install", { status: 201, body: { data: aPairing() } }).global();
+    const provider = stubProvider()
+      .on("POST", "/api/v1/portal/install", { status: 201, body: { data: aPairing() } })
+      .global();
 
     const paired = await serviceFor(provider).pair({ token: "code" });
 
@@ -165,7 +167,9 @@ describe("redeeming a pairing code", () => {
   it("drops what the provider did not send rather than writing it as null", async () => {
     const answer = aPairing();
     delete (answer as Record<string, unknown>).template;
-    const provider = stubProvider().on("POST", "/api/v1/portal/install", { status: 201, body: { data: answer } }).global();
+    const provider = stubProvider()
+      .on("POST", "/api/v1/portal/install", { status: 201, body: { data: answer } })
+      .global();
 
     const paired = await serviceFor(provider).pair({ token: "code" });
     expect(paired.environment).not.toHaveProperty("SSO_TEMPLATE");

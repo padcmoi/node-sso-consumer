@@ -32,7 +32,9 @@ is minted at the first boot and kept in the application's own store.
 here for the life of the application:
 
 ```ts
-installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o";
+installToken: {
+  prod: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o";
+}
 ```
 
 There is no `install()` to call. What decides whether the pairing happens is not the
@@ -42,21 +44,34 @@ So there is nothing to remove from a configuration afterwards, and nothing to
 remember to call on the right boot.
 
 ```ts
-import { signedHttpFetch, buildHttpSignedHeaders } from "@naskot/node-hmac-auth";
+// Built by the application, over its own Redis. It never enters this library.
+import { hmacInstance } from "./hmac";
 import { createXcoreBridge } from "@naskot/node-sso-consumer";
-import { hmacRuntime } from "./hmac";
 import { settings } from "./settings";
 import { accountStore } from "./account-store";
 
 const CLIENT_ID = () => xcore.environment.SSO_CLIENT_ID as string;
 
 export const xcore = createXcoreBridge({
-  environment: "prod",
-  // WITH its port: the login window lives on the same name without one and answers
-  // 204 to anything it does not know, so an app pointed at it declares itself
-  // "successfully" at every boot while nothing exists on the other side.
-  provider: "https://x-core.example.com:13001/",
-  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+  // The provider, one per environment. `baseUrl` is the API WITH its port: the login
+  // window lives on the same names without one and answers 204 to anything it does
+  // not know, so an application pointed at it declares itself "successfully" at every
+  // boot while nothing exists on the other side.
+  //
+  // Which of the two is used is READ from `NODE_ENV`, never configured: the same
+  // configuration ships to both. `dev` is optional - without it this library stands
+  // down in development and the application keeps its own local login.
+  provider: {
+    dev: { baseUrl: "https://d-sso.example.com:13001" },
+    prod: { baseUrl: "https://x-core.example.com:13001" },
+  },
+
+  // One pairing code per environment, each minted against its own x-core. It stays
+  // here for the life of the application: `INSTALLED` decides, not its presence.
+  installToken: {
+    dev: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+    prod: "8hK2mQx_pT4vN9wZaLbYcRdEfGhJkMnPqSt7UvWx1Yz",
+  },
 
   session: {
     // No password and no name: the first is minted at the first boot, the second is
@@ -68,23 +83,19 @@ export const xcore = createXcoreBridge({
   live: { enabled: true, staleAfterMs: 5 * 60 * 1000 },
 
   di: {
+    // TWO FUNCTIONS, and the HMAC instance never crosses. This library names no
+    // method of `@naskot/node-hmac-auth-core`: it knows two moments - "give me the
+    // current hash", "store this one" - and your code knows how. The day that
+    // package renames a method, what breaks is this line, here.
+    //
+    // A HASH both ways. x-core keeps `hashClientSecret(secret, pepper)` and verifies
+    // against that, and the pepper never travels: an application that hashed the raw
+    // secret itself would sign with something else and collect a 401 on every call.
+    // What signs is the hash x-core computed, and it arrives on the propagation queue
+    // this library consumes for you.
     hmac: {
-      // `init.clientId` is set by the library - it holds the identity, from the
-      // pairing or from the store - so this adds a secret and nothing else.
-      fetch: async (url, init) => signedHttpFetch(url, { ...init, secret: await hmacRuntime.secretHash(), secretIsHashed: true }),
-      // An upgrade is not a fetch: the provider verifies it before a socket exists,
-      // so what the dialer needs is the headers themselves.
-      signHeaders: async (request) => {
-        const headers: Record<string, string> = {};
-        buildHttpSignedHeaders({
-          ...request,
-          clientId: CLIENT_ID(),
-          secret: await hmacRuntime.secretHash(),
-          secretIsHashed: true,
-        }).forEach((value, key) => (headers[key] = value));
-        return headers;
-      },
-      setSecret: (clientId, secret) => hmacRuntime.clients.setSecret(clientId, secret),
+      getCredential: (clientId) => hmacInstance.clients.getSecretHash(clientId),
+      setCredential: (clientId, secretHash) => hmacInstance.clients.setSecretHash(clientId, secretHash),
     },
     environment: {
       load: () => settings.all(),
@@ -100,36 +111,41 @@ export const xcore = createXcoreBridge({
 });
 ```
 
-| What it lends              | Receives                       | Returns         | Called when                   |
-| -------------------------- | ------------------------------ | --------------- | ----------------------------- |
-| `hmac.fetch(url, init)`    | a request, `init.clientId` set | the HTTP answer | every call to the provider    |
-| `hmac.signHeaders(req)`    | a request to sign              | the headers     | the realtime handshake        |
-| `hmac.setSecret(id, s)`    | the identity and the secret    | nothing         | at pairing, once              |
-| `environment.load()`       | nothing                        | every key       | at boot, first                |
-| `environment.save(values)` | the keys to write              | nothing         | at pairing, and on a rotation |
-| `onAccount(userId, me)`    | what the provider pushed       | nothing         | a permission changes          |
-| `onSignedOut(userId)`      | the account                    | nothing         | the session is over           |
+| What it lends              | Receives                 | Returns   | Called when                   |
+| -------------------------- | ------------------------ | --------- | ----------------------------- |
+| `environment.load()`       | nothing                  | every key | at boot, first                |
+| `environment.save(values)` | the keys to write        | nothing   | at pairing, and on a rotation |
+| `onAccount(userId, me)`    | what the provider pushed | nothing   | a permission changes          |
+| `onSignedOut(userId)`      | the account              | nothing   | the session is over           |
 
-The signing is not written here either: `signedHttpFetch` and `buildHttpSignedHeaders`
-come from `@naskot/node-hmac-auth`, the same code that signs everywhere else in the
-ecosystem, so there is no second implementation of the protocol to drift from the one
-that verifies in front. **No secret ever crosses this library.**
+The signing is not written here either: this library holds
+`@naskot/node-hmac-auth-core` as its own dependency and builds the signed transport
+itself, from the hash `getCredential` hands back. So there is no second
+implementation of the protocol on this side to drift from the one that verifies in
+front, and no secret crosses the boundary - a hash is asked for, a hash is stored.
 
 The hash is re-read on EVERY call rather than captured at boot: the credential is
 replaced by propagation, and a client built once would sign with the old one until the
 next restart - which surfaces as a `401` on everything, with nothing naming the cause.
 
-`environment` holds eighteen keys and this library writes them: `INSTALLED`,
+`environment` holds nineteen keys and this library writes them: `INSTALLED`,
 `SSO_SESSION_PASSWORD`, `SSO_SESSION_COOKIE_NAME`, `SSO_CLIENT_ID`, `SSO_REDIRECT_URI`,
 `SSO_CANCEL_URI`, `SSO_PORTAL_URL`, `SSO_TEMPLATE`, `SSO_DEPEND_GLOBAL_RESSOURCE`, `HMAC_AMQP_QUEUE`,
 `HMAC_PROPAGATION_SECRET`, `HMAC_AMQP_VHOST`, `HMAC_AMQP_BROKER_QUEUE`,
 `RABBITMQ_PROTOCOL`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`,
-`RABBITMQ_PASSWORD`. The values are JSON, not strings - a gate is a list, a port is a
+`RABBITMQ_PASSWORD` and `HMAC_PROPAGATION_CURSOR`. That last one is where the
+credential queue is up to, so a redelivered rotation is applied once: a position
+rather than a setting, and the only key here x-core knows nothing about. The values are JSON, not strings - a gate is a list, a port is a
 number - and `save` is an UPSERT: it writes the keys it is given and leaves the others
 alone.
 
-`xcore.environment` hands the whole of it back, which is what wires the propagation
-consumer to the broker. This library holds no broker and never will.
+`xcore.environment` hands the whole of it back, for whatever else an application does
+with it. The broker is not one of those things any more: **this library opens the
+credential queue itself**, with `@naskot/node-hmac-auth-core-propagation` as its own
+dependency, and an application writes no AMQP at all. That queue is not a convenience
+
+- it is how a paired application gets a key that verifies, since the secret the
+  pairing answers with is hashed by x-core with a pepper that never travels.
 
 ## 2) The server
 
