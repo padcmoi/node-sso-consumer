@@ -2,6 +2,7 @@
 
 ## [Unreleased] - 2026-08-21
 
+- Track `poc/nuxt4-nitro/.env` rather than a sample of it. The POC is a demonstration stack against a throwaway database, so its values are the ones anybody running it wants and none of them is a secret: a sample to copy was one manual step between cloning the repository and seeing the BEFORE run. The rule stands everywhere else - `.env` remains ignored, and this one path is the single exception
 - Publish under `@gestionpratique` rather than `@naskot`. The scope says who owns the thing, and this library is x-core's - it speaks x-core's routes, x-core's HMAC scheme and x-core's catalogue, and runs against nothing else. The two HMAC packages keep their own scope, being general-purpose and owned elsewhere
 
 - Take the ENVIRONMENT out of the configuration and read it from the process. It was a key an operator wrote, which meant one line to change at every deployment - and a deployment that forgot it installed production against the dev provider, silently. `NODE_ENV` decides now, and anything that is not a production build is `dev`: a developer's machine offering to install into production is the wrong default to get wrong

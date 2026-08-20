@@ -8,5 +8,6 @@ coverage/
 .env
 .env.*
 !.env.sample
+!poc/nuxt4-nitro/.env
 .DS_Store
 .trash/
