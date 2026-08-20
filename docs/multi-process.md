@@ -32,7 +32,7 @@ one another worker is making, and everything it needs to serve came out of `load
 ## 2) A ticket minted anywhere must be spendable anywhere
 
 ```ts
-import type { TicketStore } from "@naskot/node-sso-consumer";
+import type { TicketStore } from "@gestionpratique/node-sso-consumer";
 
 const tickets: TicketStore = {
   put: (ticket, accessToken, ttl) => redis.set(`sso:ticket:${ticket}`, accessToken, "EX", ttl),

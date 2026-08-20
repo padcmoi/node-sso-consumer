@@ -1,4 +1,4 @@
-// @naskot/node-sso-consumer
+// @gestionpratique/node-sso-consumer
 //
 // What a Node application needs to BE a consumer of the x-core SSO, rather than to
 // build one: it pairs once, declares itself at every boot, holds its reader's

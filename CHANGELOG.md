@@ -2,6 +2,8 @@
 
 ## [Unreleased] - 2026-08-21
 
+- Publish under `@gestionpratique` rather than `@naskot`. The scope says who owns the thing, and this library is x-core's - it speaks x-core's routes, x-core's HMAC scheme and x-core's catalogue, and runs against nothing else. The two HMAC packages keep their own scope, being general-purpose and owned elsewhere
+
 - Take the ENVIRONMENT out of the configuration and read it from the process. It was a key an operator wrote, which meant one line to change at every deployment - and a deployment that forgot it installed production against the dev provider, silently. `NODE_ENV` decides now, and anything that is not a production build is `dev`: a developer's machine offering to install into production is the wrong default to get wrong
 - Make `provider` a pair, one per environment, each naming its API as `baseUrl`. The same configuration ships to both, which is the whole point of reading the environment rather than writing it. `dev` is OPTIONAL and its absence is a decision: without an address there is nowhere to call, so this library stands down in development - no pairing, no declaration, no SSO - and the application keeps whatever local login it has. It does not throw, because a missing key here is how an application says "not in dev"
 - Make `installToken` a pair for the same reason, and follow the same switch. A code is minted against ONE x-core and means nothing against the other: it is a row in that database, with that ecosystem's queue, broker account and credential behind it. One field for both meant editing the configuration at every deployment, or installing production with the dev code - which succeeds, silently, and wires the application to the wrong provider
@@ -39,8 +41,8 @@
 - Add the realtime client following each account, so a permission change lands within seconds instead of at the next navigation
 - Add the browser WebSocket bridge: single-use tickets, signed upstream handshake, refusal of page-sent `auth` frames and close-code passthrough
 - Add the provider address book, written down per environment rather than configured per deployment
-- Add `@naskot/node-sso-consumer/client`, the browser half: it reads the session, asks for a ticket, dials this host's socket, reconnects and tells a session that is over from a connection that dropped
-- Add `@naskot/node-sso-consumer/express`, imported once for its effect, declaring `req.me` / `req.ssoTokens` / `req.ssoUserId` on the framework's own request type
+- Add `@gestionpratique/node-sso-consumer/client`, the browser half: it reads the session, asks for a ticket, dials this host's socket, reconnects and tells a session that is over from a connection that dropped
+- Add `@gestionpratique/node-sso-consumer/express`, imported once for its effect, declaring `req.me` / `req.ssoTokens` / `req.ssoUserId` on the framework's own request type
 - Add `live.onAccount` and `live.onSignedOut`, so what the provider pushes reaches a store the library knows nothing about, and `follow()` for a socket of one's own on one account
 - Add `bootstrap.elect`, so one worker out of several pairs and declares - the install code is single-use, and a second worker's attempt is refused
 - Add `jar()`, the cookie jar of one exchange, for a handler that needs the sealed session rather than the account
