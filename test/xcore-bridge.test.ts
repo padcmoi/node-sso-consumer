@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ENV } from "../src/environment.js";
 import { createXcoreBridge } from "../src/xcore-bridge.js";
 import { PROVIDERS } from "../src/providers.js";
@@ -7,12 +7,10 @@ import { API_BASE, aPairing, paired, readOnlyHmac, stubEnvironment, stubHmac, st
 const CONFIG_PATH = "/api/v1/sso/consumer/config";
 const INSTALL_PATH = "/api/v1/portal/install";
 
-// Which environment the bridge runs against is READ from the process rather than
-// configured, so a test that wants the prod provider says so the way a deployment
-// does. Everything here asserts against `PROVIDERS.prod`.
-beforeEach(() => {
-  vi.stubEnv("NODE_ENV", "production");
-});
+// Which environment a bridge runs against is STATED by the application, so a test
+// says it the way a deployment does: one key, no environment variable to stub, and
+// nothing global left behind between two tests. Everything here asserts against
+// `PROVIDERS.prod`.
 
 /**
  * A bridge on a store that already holds a paired application, which is what every
@@ -20,6 +18,7 @@ beforeEach(() => {
  */
 const bridgeFor = (provider: ReturnType<typeof stubProvider>, overrides: Partial<Parameters<typeof createXcoreBridge>[0]> = {}) =>
   createXcoreBridge({
+    NODE_ENV: "prod",
     provider: { prod: { baseUrl: API_BASE } },
     // Nothing may open a socket in a test: the accounts are followed on demand.
     live: { enabled: false },
@@ -33,6 +32,7 @@ const freshBridge = (provider: ReturnType<typeof stubProvider>, overrides: Recor
   const store = stubEnvironment();
   const hmac = stubHmac(provider);
   const bridge = createXcoreBridge({
+    NODE_ENV: "prod",
     provider: { prod: { baseUrl: API_BASE } },
     installToken: { prod: "the-code" },
     live: { enabled: false },
@@ -44,8 +44,52 @@ const freshBridge = (provider: ReturnType<typeof stubProvider>, overrides: Recor
 };
 
 // `provider` is null only when this library is standing down, and none of these
-// bridges is: they all name a prod endpoint, and the environment is stubbed to prod.
+// bridges is: they all say `prod` and they all name a prod endpoint.
 const addressesOf = (bridge: ReturnType<typeof createXcoreBridge>) => bridge.provider ?? PROVIDERS.dev;
+
+describe("which environment it is, as the application stated it", () => {
+  it("takes the half it was told to take, and not the other", () => {
+    const both = {
+      provider: { dev: { baseUrl: "https://dev.example:1" }, prod: { baseUrl: "https://prod.example:1" } },
+      live: { enabled: false },
+      di: { hmac: stubHmac(stubProvider()), environment: paired() },
+    };
+
+    expect(createXcoreBridge({ ...both, NODE_ENV: "dev" }).provider?.apiBase).toBe("https://dev.example:1");
+    expect(createXcoreBridge({ ...both, NODE_ENV: "prod" }).provider?.apiBase).toBe("https://prod.example:1");
+  });
+
+  // The absence of a dev provider is a decision, so it is a state rather than a
+  // throw: no pairing, no declaration, no SSO, and the application keeps whatever
+  // local login it has.
+  it("stands down when it is dev and there is no dev provider", async () => {
+    const provider = stubProvider();
+    const bridge = createXcoreBridge({
+      NODE_ENV: "dev",
+      provider: { prod: { baseUrl: API_BASE } },
+      installToken: { prod: "the-code" },
+      live: { enabled: false },
+      di: { hmac: stubHmac(provider), environment: stubEnvironment() },
+    });
+
+    expect(bridge.provider).toBeNull();
+    expect(await bridge.start()).toBeNull();
+    expect(provider.seen).toHaveLength(0);
+  });
+
+  // Anything else read as `dev` would be the silent failure this key exists to
+  // remove: a production process standing down and offering its local login.
+  it("refuses a value that is neither, rather than guessing one", () => {
+    expect(() =>
+      createXcoreBridge({
+        NODE_ENV: "production" as never,
+        provider: { prod: { baseUrl: API_BASE } },
+        live: { enabled: false },
+        di: { hmac: stubHmac(stubProvider()), environment: paired() },
+      })
+    ).toThrow(/must be "dev" or "prod"/);
+  });
+});
 
 describe("the addresses it runs against", () => {
   it("takes the API as `baseUrl` and keeps the environment's other three", () => {
@@ -149,6 +193,7 @@ describe("the boot: read, pair if it must, declare", () => {
     const provider = answering();
     const store = stubEnvironment();
     const bridge = createXcoreBridge({
+      NODE_ENV: "prod",
       provider: { prod: { baseUrl: API_BASE } },
       installToken: { prod: "the-code" },
       live: { enabled: false },
@@ -171,6 +216,7 @@ describe("the boot: read, pair if it must, declare", () => {
     const warn = vi.fn();
 
     await createXcoreBridge({
+      NODE_ENV: "prod",
       provider: { prod: { baseUrl: API_BASE } },
       live: { enabled: false },
       retry: { attempts: 1, delayMs: 0 },

@@ -57,14 +57,21 @@ const CLIENT_ID = () => xcore.environment.SSO_CLIENT_ID as string;
 @Injectable()
 export class XcoreProvider implements OnApplicationBootstrap, OnModuleDestroy {
   readonly bridge = createXcoreBridge({
+    // Which of the two environments this process is, and only the application can say
+    // it: this library reads no `process.env`, and a bundler freezes that value at
+    // build time anyway. `"dev"` or `"prod"`, and anything else throws rather than be
+    // guessed - read as dev, a wrong value stands a production process down and leaves
+    // its local login facing the internet, without a word.
+    NODE_ENV: process.env.NODE_ENV === "production" ? "prod" : "dev",
+
     // The provider, one per environment. `baseUrl` is the API WITH its port: the login
     // window lives on the same names without one and answers 204 to anything it does
     // not know, so an application pointed at it declares itself "successfully" at every
     // boot while nothing exists on the other side.
     //
-    // Which of the two is used is READ from `NODE_ENV`, never configured: the same
-    // configuration ships to both. `dev` is optional - without it this library stands
-    // down in development and the application keeps its own local login.
+    // Which of the two is used is decided by `NODE_ENV` above: the same configuration
+    // ships to both. `dev` is optional - without it this library stands down in
+    // development and the application keeps its own local login.
     provider: {
       dev: { baseUrl: "https://d-sso.example.com:13001" },
       prod: { baseUrl: "https://x-core.example.com:13001" },

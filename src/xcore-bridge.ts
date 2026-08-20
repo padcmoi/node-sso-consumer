@@ -12,13 +12,14 @@ import type { WebRequest, WebResponse } from "./http/web.js";
 import { SsoLiveAccounts } from "./session/live-accounts.js";
 import { SsoSessionService } from "./session/session.service.js";
 import {
-  currentEnvironment,
+  environmentOf,
   PROVIDERS,
   installTokenFor,
   providerFor,
   type InstallTokens,
   type ProviderAddresses,
   type ProviderConfig,
+  type ProviderEnvironment,
 } from "./providers.js";
 import { startPropagation } from "./propagation.js";
 import type { SsoLogger, SsoMe } from "./types.js";
@@ -62,6 +63,41 @@ export interface XcoreInjection {
  */
 export interface XcoreBridgeOptions {
   /**
+   * Which of the two environments this process is, STATED BY THE APPLICATION.
+   *
+   * The first key because it decides every other one: which `provider` is called,
+   * which `installToken` is presented, and whether this library runs at all. The
+   * configuration is deliberately written twice - both halves ship together - so
+   * nothing in this object says which half is this process's, and this is the only
+   * thing that can.
+   *
+   * PASSED, NOT READ, and that is this library's rule rather than a detail: it reads
+   * no `process.env`. What comes from the environment is read once, in the service
+   * layer, and comes down as plain configuration.
+   *
+   * Read from in here, the value would not even be reliable. A bundler - Nitro, Vite,
+   * esbuild - replaces `process.env.NODE_ENV` with a constant at build time, so the
+   * bundled code reads nothing at boot: it carries what was true on the machine that
+   * built the image. The application's own line is in the application's own build,
+   * which knows.
+   *
+   * IT NEVER FAILS LOUDLY, which is why it is worth this much comment. Wrong in
+   * production, the application presents the dev pairing code to the production
+   * x-core, which has never heard of it - or stands down entirely and offers its
+   * local login to the internet. Wrong in development, a developer's machine installs
+   * itself into production. All three boot, log their own success, and name nothing.
+   *
+   * ```ts
+   * NODE_ENV: process.env.NODE_ENV === "production" ? "prod" : "dev",
+   * ```
+   *
+   * `NODE_ENV` is what most deployments already set. An application with another
+   * signal - a build flag, a compose variable, a branch - writes its own: what
+   * matters is that it is decided once, in one place.
+   */
+  NODE_ENV: ProviderEnvironment;
+
+  /**
    * The provider, one per environment, `dev` optional.
    *
    * `baseUrl` is the API WITH its port, and it is the one address an application
@@ -74,9 +110,8 @@ export interface XcoreBridgeOptions {
    * application pointed at it declares itself "successfully" at every boot, logs its
    * own success, and nothing exists on the other side.
    *
-   * Which of the two is used is READ from the process, never configured: the same
-   * configuration ships to both, and a key naming the environment would put the
-   * per-deployment edit back where it was.
+   * Which of the two is used is decided by `NODE_ENV` above: the same configuration
+   * ships to both environments, and only the application knows which one it is.
    *
    * `dev` absent means this library stands down in development - see `ProviderConfig`.
    */
@@ -167,8 +202,8 @@ const DEFAULT_STALE_AFTER_MS = 5 * 60 * 1000;
  * What stays the application's: the signer, its own addresses, and its handlers.
  */
 export class XcoreBridge {
-  /** Which of the two this process is, read from the runtime and held. */
-  readonly runningIn = currentEnvironment();
+  /** Which of the two this process is, as the application stated it. */
+  readonly runningIn: ProviderEnvironment;
 
   /** The four addresses in use, whether or not this library is standing down. */
   private readonly addresses: ProviderAddresses;
@@ -215,6 +250,8 @@ export class XcoreBridge {
   private propagation: Awaited<ReturnType<typeof startPropagation>> = null;
 
   constructor(private readonly options: XcoreBridgeOptions) {
+    // First, and it throws rather than guesses: everything below is chosen by it.
+    this.runningIn = environmentOf(options.NODE_ENV);
     this.provider = providerFor(options.provider, this.runningIn);
 
     // The address book still answers when this library is standing down: nothing

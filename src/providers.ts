@@ -72,18 +72,24 @@ export interface ProviderConfig {
 }
 
 /**
- * Which environment this process is, read rather than configured.
+ * The environment, as the application stated it, or a refusal.
  *
- * READ, because the whole point of a pair of providers and a pair of pairing codes
- * is that the same configuration ships to both. A key naming the environment would
- * put the edit back where it was: one line to change at every deployment, and a
- * deployment that forgets it installs production against the dev provider.
+ * A REFUSAL rather than a default, and that is the whole reason this is a function.
+ * Everything in the configuration is written twice - a provider per environment, a
+ * pairing code per environment - and this one value picks the half. Read anything
+ * unrecognised as `dev` and the failure is the silent kind: a production process
+ * stands down, offers its own local login to the internet, and logs a clean boot.
  *
- * Anything that is not a production build is `dev`, which is the safe way round: a
- * developer's machine offering to install into production is the wrong default to
- * get wrong.
+ * Only the two literals pass. TypeScript already says so, but a JavaScript caller,
+ * a value read from a store or a `NODE_ENV` that was never set arrive at runtime,
+ * and there is nothing safe to guess from them.
  */
-export const currentEnvironment = () => (process.env.NODE_ENV === "production" ? "prod" : "dev") satisfies ProviderEnvironment;
+export function environmentOf(stated: unknown) {
+  if (stated === "dev" || stated === "prod") return stated satisfies ProviderEnvironment;
+  throw new Error(
+    `[sso] NODE_ENV must be "dev" or "prod", and this application passed ${JSON.stringify(stated)}. It decides which provider is called and which install token is presented, so there is nothing to fall back to.`
+  );
+}
 
 /**
  * The addresses this process runs against, or `null` when it has none.

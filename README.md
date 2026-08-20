@@ -43,12 +43,30 @@ What this library does NOT do: decide anything about the application's own data.
 gate it declares says who may come in at all; who may touch which invoice is the
 application's business, and always was.
 
-## Two environments, and neither is a setting
+## Two environments, and one line that says which
 
-Which environment a process runs against is **read from `NODE_ENV`**, never
-configured: the same configuration ships to both, and a key naming the environment
-would put the per-deployment edit back where it was. Three of the four addresses are
-**written down in the code**; the fourth, the API, is the one an application types:
+The whole configuration is written **twice** - a provider per environment, a pairing
+code per environment - and the same configuration ships to both. What tells this
+library which half is its own is one key, and the application states it:
+
+```ts
+NODE_ENV: process.env.NODE_ENV === "production" ? "prod" : "dev",
+```
+
+**Stated, not read.** Nothing in here touches `process.env`, and reading it from in
+here would not even be reliable: a bundler - Nitro, Vite, esbuild - replaces
+`process.env.NODE_ENV` with a constant at build time, so the bundled code carries
+what was true on the machine that built the image rather than what is true at boot.
+The line above sits in the application's own build, which knows. `NODE_ENV` is what
+most deployments already set; an application with another signal writes its own.
+
+Only `"dev"` and `"prod"` are accepted, and anything else throws at construction.
+Read as `dev`, a wrong value would be the silent kind of failure: a production
+process standing down and offering its own local login to the internet, or a
+developer's machine installing itself into production. Both boot cleanly.
+
+Three of the four addresses are **written down in the code**; the fourth, the API, is
+the one an application types:
 
 |              | dev                               | prod                               |
 | ------------ | --------------------------------- | ---------------------------------- |
@@ -92,9 +110,13 @@ import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 import { hmacInstance } from "./hmac";
 
 export const xcore = createXcoreBridge({
+  // Which of the two halves below is this process's, and nothing else can say it.
+  // This library reads no `process.env` - and a bundler would have frozen the value
+  // at build time anyway. Anything other than these two literals is refused.
+  NODE_ENV: process.env.NODE_ENV === "production" ? "prod" : "dev",
   // WITH its port: the login window lives on the same names without one and answers
   // 204 to anything, so a mistake here fails silently. One per environment, and
-  // which one is read from `NODE_ENV`. Drop `dev` to stand this library down there.
+  // `NODE_ENV` above picks. Drop `dev` to stand this library down there.
   provider: {
     dev: { baseUrl: "https://d-sso.example.com:13001" },
     prod: { baseUrl: "https://x-core.example.com:13001" },
@@ -252,7 +274,7 @@ npm run build
 
 ## Notes
 
-- Nothing here reads `process.env`, opens a store or holds a secret. Read env in the service layer and pass plain config.
+- Nothing here reads `process.env`, opens a store or holds a secret. Read env in the service layer and pass plain config - `NODE_ENV` included, which is why it is a key of the configuration rather than something this library looks up.
 - The HMAC runtime is injected whole: this library signs with it and owns no credential of its own.
 - Provider addresses are written down in the library, per environment, not configured per deployment. `provider` is required all the same, because it is the one address whose mistake is silent.
 - The session cookie is sealed AES-256-GCM. The token pair IS the session: no local refresh chain. Changing `session.password` signs everyone out.
