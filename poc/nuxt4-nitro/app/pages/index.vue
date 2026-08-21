@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const session = useSessionState()
+const { account, actions, connected } = useSso()
 const { data: services } = await useFetch('/api/services')
 
 const stats = computed(() => [
@@ -10,22 +10,22 @@ const stats = computed(() => [
     hint: `${services.value?.filter((service) => service.status === 'running').length ?? 0} en marche`,
   },
   {
-    label: 'Sessions actives',
-    value: String(session.value?.activeSessions.length ?? 0),
-    icon: 'i-lucide-user-check',
-    hint: 'pour ce compte',
+    label: 'Droits sur cette app',
+    value: String(actions.value.length),
+    icon: 'i-lucide-key-round',
+    hint: 'recalculés par x-core à chaque lecture',
   },
   {
-    label: 'Session expire dans',
-    value: `${Math.floor((session.value?.session.expiresInSeconds ?? 0) / 3600)} h`,
-    icon: 'i-lucide-timer',
-    hint: session.value?.session.expiresAt ?? '',
+    label: 'Temps réel',
+    value: connected.value ? 'ouvert' : 'fermé',
+    icon: 'i-lucide-radio',
+    hint: 'me-changed, me-signed-out',
   },
   {
-    label: 'Base de données',
-    value: 'MariaDB',
+    label: 'Sessions en base',
+    value: '0',
     icon: 'i-lucide-database',
-    hint: 'réseau interne uniquement',
+    hint: 'aucune table de session ici',
   },
 ])
 </script>
@@ -36,8 +36,8 @@ const stats = computed(() => [
       icon="i-lucide-info"
       color="neutral"
       variant="subtle"
-      title="Vue d'ensemble"
-      description="Tout ce qui est affiché ici est lu en base : les services, la session en cours et le compte connecté."
+      title="Ce que cette application détient"
+      description="Un cookie scellé, et rien d'autre. Pas de table `users`, pas de colonne mot de passe, pas de table `sessions`, pas de permission stockée. Le compte, le profil et les droits ci-dessous sont demandés à x-core à chaque requête et jamais mis en cache."
     />
 
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -70,22 +70,44 @@ const stats = computed(() => [
 
       <dl class="grid gap-4 sm:grid-cols-2">
         <div class="min-w-0">
+          <dt class="text-xs uppercase tracking-wide text-slate-500">Nom</dt>
+          <dd class="mt-1 text-sm text-slate-200">{{ account?.user.displayName }}</dd>
+        </div>
+        <div class="min-w-0">
           <dt class="text-xs uppercase tracking-wide text-slate-500">Email</dt>
-          <dd class="mt-1 text-sm text-slate-200">{{ session?.user.email }}</dd>
+          <dd class="mt-1 text-sm text-slate-200">{{ account?.user.email }}</dd>
         </div>
         <div class="min-w-0">
           <dt class="text-xs uppercase tracking-wide text-slate-500">Identifiant</dt>
-          <dd class="mt-1 truncate font-mono text-xs text-slate-200">{{ session?.user.id }}</dd>
+          <dd class="mt-1 truncate font-mono text-xs text-slate-200">{{ account?.user.id }}</dd>
         </div>
         <div class="min-w-0">
-          <dt class="text-xs uppercase tracking-wide text-slate-500">Compte créé le</dt>
-          <dd class="mt-1 text-sm text-slate-200">{{ session?.user.createdAt }}</dd>
-        </div>
-        <div class="min-w-0">
-          <dt class="text-xs uppercase tracking-wide text-slate-500">Session ouverte le</dt>
-          <dd class="mt-1 text-sm text-slate-200">{{ session?.session.createdAt }}</dd>
+          <dt class="text-xs uppercase tracking-wide text-slate-500">Ville</dt>
+          <dd class="mt-1 text-sm text-slate-200">{{ account?.profile.city ?? '—' }}</dd>
         </div>
       </dl>
+    </UCard>
+
+    <UCard :ui="{ root: 'bg-slate-900/60 ring-white/10' }">
+      <template #header>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="text-sm font-semibold text-white">
+            Droits sur cette application ({{ actions.length }})
+          </h2>
+          <!-- Retirez-en un depuis le manager : la liste ci-dessous change sans
+               rechargement, parce que la frame EST la nouvelle valeur. -->
+          <UBadge color="primary" variant="subtle" size="sm">poussés par websocket</UBadge>
+        </div>
+      </template>
+
+      <div v-if="actions.length" class="flex flex-wrap gap-2">
+        <UBadge v-for="action in actions" :key="action" color="neutral" variant="subtle" size="sm">
+          {{ action }}
+        </UBadge>
+      </div>
+      <p v-else class="text-sm text-slate-500">
+        Aucun droit sur cette application.
+      </p>
     </UCard>
   </div>
 </template>

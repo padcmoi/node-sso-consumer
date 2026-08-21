@@ -1,14 +1,16 @@
 <script setup lang="ts">
-const session = useSessionState()
-const pending = ref(false)
+const { account, connected } = useSso()
 
-const payload = computed(() => JSON.stringify(session.value, null, 2))
-
-async function reload() {
-  pending.value = true
-  await refreshSession()
-  pending.value = false
-}
+/**
+ * Ce que `GET /api/auth/session` répond, à l'instant.
+ *
+ * Rien n'est relu ici : la valeur affichée est celle que la socket a poussée en
+ * dernier. C'est tout l'intérêt de tenir cette socket ouverte - une permission
+ * accordée ou retirée depuis n'importe quelle autre application arrive dans ce bloc
+ * en quelques secondes, sans rechargement et sans requête.
+ */
+const payload = computed(() => JSON.stringify(account.value, null, 2))
+const groups = computed(() => account.value?.permissions.groups ?? [])
 </script>
 
 <template>
@@ -17,29 +19,17 @@ async function reload() {
       icon="i-lucide-flask-conical"
       color="neutral"
       variant="subtle"
-      title="La session en cours"
-      description="La session avec laquelle cette console est connectée, telle que l'API la répond à l'instant : la ligne `sessions` de la base, le compte `users` associé et les autres sessions encore ouvertes pour ce compte. Rien ici n'est simulé et rien n'est modifié."
+      title="La session, telle que x-core la répond"
+      description="Le compte, le profil civil, les droits et les groupes par lesquels ils arrivent. Rien de tout cela n'est stocké ici : ni en base, ni en cache, ni dans un store persisté. Ce bloc est mis à jour par la socket, pas par une relecture."
     />
 
     <UCard :ui="{ root: 'bg-slate-900/60 ring-white/10' }">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <h2 class="font-mono text-sm text-slate-200">Session en cours</h2>
-          <div class="flex items-center gap-2">
-            <UBadge color="primary" variant="subtle" size="sm">
-              GET /api/auth/session
-            </UBadge>
-            <UButton
-              icon="i-lucide-refresh-cw"
-              color="neutral"
-              variant="ghost"
-              size="xs"
-              :loading="pending"
-              @click="reload"
-            >
-              Relire
-            </UButton>
-          </div>
+          <h2 class="font-mono text-sm text-slate-200">me-changed</h2>
+          <UBadge :color="connected ? 'success' : 'error'" variant="subtle" size="sm">
+            {{ connected ? 'socket ouverte' : 'socket fermée' }}
+          </UBadge>
         </div>
       </template>
 
@@ -51,7 +41,7 @@ async function reload() {
     <UCard :ui="{ root: 'bg-slate-900/60 ring-white/10', body: 'p-0 sm:p-0' }">
       <template #header>
         <h2 class="text-sm font-semibold text-white">
-          Sessions actives du compte ({{ session?.activeSessions.length ?? 0 }})
+          Groupes ({{ groups.length }})
         </h2>
       </template>
 
@@ -59,29 +49,21 @@ async function reload() {
         <table class="w-full text-left text-sm">
           <thead class="border-b border-white/5 text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th class="px-4 py-3 font-medium">Jeton</th>
-              <th class="px-4 py-3 font-medium">Ouverte le</th>
-              <th class="px-4 py-3 font-medium">Expire le</th>
-              <th class="px-4 py-3 font-medium">IP</th>
-              <th class="px-4 py-3 font-medium">Agent</th>
+              <th class="px-4 py-3 font-medium">Nom</th>
+              <th class="px-4 py-3 font-medium">Description</th>
+              <th class="px-4 py-3 font-medium">Identifiant</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-white/5">
-            <tr
-              v-for="item in session?.activeSessions"
-              :key="item.token"
-              class="hover:bg-white/5"
-            >
-              <td class="px-4 py-3 font-mono text-xs text-slate-300">
-                {{ item.token }}
-                <UBadge v-if="item.current" color="primary" variant="subtle" size="sm" class="ml-2">
-                  celle-ci
-                </UBadge>
+            <tr v-if="!groups.length">
+              <td colspan="3" class="px-4 py-6 text-center text-slate-500">
+                Aucun groupe.
               </td>
-              <td class="px-4 py-3 text-slate-400">{{ item.createdAt }}</td>
-              <td class="px-4 py-3 text-slate-400">{{ item.expiresAt }}</td>
-              <td class="px-4 py-3 font-mono text-xs text-slate-400">{{ item.ip }}</td>
-              <td class="max-w-xs truncate px-4 py-3 text-xs text-slate-500">{{ item.userAgent }}</td>
+            </tr>
+            <tr v-for="group in groups" :key="group.id" class="hover:bg-white/5">
+              <td class="px-4 py-3 font-medium text-slate-100">{{ group.name }}</td>
+              <td class="px-4 py-3 text-slate-400">{{ group.description ?? '—' }}</td>
+              <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ group.id }}</td>
             </tr>
           </tbody>
         </table>
