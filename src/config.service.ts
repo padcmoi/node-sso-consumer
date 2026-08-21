@@ -13,8 +13,14 @@ const RETRYABLE = new Set(["NO_CREDENTIAL", "UNREACHABLE", "UNAUTHORIZED"]);
 
 export interface SsoConfigServiceOptions {
   http: SsoHttpClient;
-  /** The login window the browser is sent to. NOT the API - they differ by a port. */
-  frontUrl: string;
+  /**
+   * The login window the browser is sent to. NOT the API - they differ by a port.
+   *
+   * A function rather than a value: the provider may name it at pairing, and the
+   * pairing happens inside `start()`, long after this service is built. Captured as
+   * a string it would always be the derived one.
+   */
+  frontUrl(): string;
   /**
    * What this application IS, read back from its own store rather than written here.
    *
@@ -64,6 +70,9 @@ function environmentOf(fields: Record<string, unknown> | null) {
     // Where a sign-out lands. Sent by the provider because the provider is what
     // serves it, and a constant here would outlive the address.
     [ENV.SSO_PORTAL_URL]: text(fields, "portalUrl"),
+    // The login window, when the provider names it. Dropped when it does not, and
+    // the API base's own host answers instead - see `provider.ts`.
+    [ENV.SSO_FRONT_URL]: text(fields, "frontUrl"),
     [ENV.SSO_TEMPLATE]: text(fields, "template"),
     // An ARRAY, and an empty one is a declaration - "this application filters
     // nothing" - rather than an absence, so it is kept even when it is empty.
@@ -114,7 +123,7 @@ export class SsoConfigService {
    * impossible.
    */
   authorizeUrl(params: { state: string; frontUrl?: string }) {
-    const front = params.frontUrl ?? this.options.frontUrl;
+    const front = params.frontUrl ?? this.options.frontUrl();
     if (!front) throw new SsoError("UNREACHABLE", "No front URL configured for the SSO login window");
 
     const url = new URL("/authorize", front);

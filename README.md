@@ -43,58 +43,92 @@ What this library does NOT do: decide anything about the application's own data.
 gate it declares says who may come in at all; who may touch which invoice is the
 application's business, and always was.
 
-## Two environments, and one line that says which
+## One switch, and one address
 
-The whole configuration is written **twice** - a provider per environment, a pairing
-code per environment - and the same configuration ships to both. What tells this
-library which half is its own is one key, and the application states it:
+Two keys carry the whole of what an application decides about this library, and they
+are the first two of the object.
 
 ```ts
-NODE_ENV: process.env.NODE_ENV === "production" ? "prod" : "dev",
+enabled: NODE_ENV == "production" ? true : false,
+provider: { baseUrl: "https://x-core.gestionpratique.ovh:13001" },
 ```
 
-**Stated, not read.** Nothing in here touches `process.env`, and reading it from in
+### `enabled` - on, or withdrawn
+
+At `false` this library **withdraws**: no pairing, no declaration, no session, no
+socket. `start()` hands back without doing anything, every guard lets everything
+through, and what signs a reader in is the application's own affair - a hardcoded
+login, an account in a table, whatever it had before. It is a decision rather than a
+fault: it does not throw and says no more than one line in the log.
+
+**It is not a "dev mode", it is a switch**, and the application computes it. The line
+above turns it on in production and off elsewhere because that is the common case: a
+screen being built without the ecosystem behind it, without a token to mint and
+without a broker account. Nothing forces that line - a development machine that wants
+the real chain, real pairing, real propagation and a revocation that genuinely
+arrives over the socket, writes `enabled: true` and never looks at it again. Those
+things do not simulate credibly.
+
+**Passed, not read.** Nothing in here touches `process.env`, and reading it from in
 here would not even be reliable: a bundler - Nitro, Vite, esbuild - replaces
 `process.env.NODE_ENV` with a constant at build time, so the bundled code carries
 what was true on the machine that built the image rather than what is true at boot.
-The line above sits in the application's own build, which knows. `NODE_ENV` is what
-most deployments already set; an application with another signal writes its own.
+The line above sits in the application's own build, which knows.
 
-Only `"dev"` and `"prod"` are accepted, and anything else throws at construction.
-Read as `dev`, a wrong value would be the silent kind of failure: a production
-process standing down and offering its own local login to the internet, or a
-developer's machine installing itself into production. Both boot cleanly.
+Off by mistake in production it does not fall over: it leaves a production offering
+its fallback login to the internet, cleanly and without a word. That is why it is the
+first key of the object.
 
-Three of the four addresses are **written down in the code**; the fourth, the API, is
-the one an application types:
+### `provider` - one x-core, one address
 
-|              | dev                               | prod                               |
-| ------------ | --------------------------------- | ---------------------------------- |
-| the API      | `d-sso.gestionpratique.ovh:13001` | `x-core.gestionpratique.ovh:13001` |
-| login window | `d-sso.gestionpratique.ovh`       | `x-sso.gestionpratique.ovh`        |
-| the portal   | `d-portal.gestionpratique.ovh`    | `portail.gestionpratique.ovh`      |
-| the socket   | `d-sso.gestionpratique.ovh:13002` | `x-core.gestionpratique.ovh:13002` |
+`baseUrl` is the API **with its port**, and it is the only address an application
+writes itself. It cannot be otherwise: everything else comes back from the pairing,
+but one does not learn where to reach the provider from the provider.
 
-They vary per **ecosystem**, not per deployment, which is why they are not
-configuration. And the mistake they invite is the one that fails silently: the API and
-the login window differ by a port, and the login window answers `204 No Content` to
-anything it does not know. An application pointed at it declares itself
-"successfully" at every boot, logs its own success, and nothing exists on the other
-side. `provider.<env>.baseUrl` is required for exactly that reason - it is the one
-address an integrator has to have looked at and typed, and `declare()` refuses a base
-that does not reject an unsigned call with a `401`.
+The other three are derived from it, and each derivation is a fact of the protocol:
 
-`provider.dev` is **optional, and its absence is a decision**. Without a dev address
-there is nowhere to call, so this library stands down in development: no pairing, no
-declaration, no SSO. It does not throw - that is how an application says "not in dev",
-and it keeps whatever local login it has. `installToken.dev` follows the same switch.
+| Address          | Where it comes from                                   |
+| ---------------- | ----------------------------------------------------- |
+| the API          | `provider.baseUrl`, written by the application        |
+| the login window | the same host **without** the port                    |
+| the socket       | the same host, **one port further**, path `/realtime` |
+| the portal       | answered by the pairing, under `SSO_PORTAL_URL`       |
 
-`installToken` is a pair for the same reason the provider is: a code is minted against
-one x-core and means nothing against the other. One field for both would have meant
-installing production with the dev code, which succeeds silently.
+**The port is the trap.** The API and the login window differ by exactly that, and
+the login window answers `204 No Content` to anything it does not know, unsigned
+calls included. An application pointed at it declares itself "successfully" at every
+boot, writes its own success into its logs, and nothing exists on the other side. So
+`start()` proves the address first: an unsigned call that is not refused with a `401`
+means nothing is declared.
 
-An application on another ecosystem names the other three addresses beside `baseUrl`
-and overrides the lot.
+A deployment laid out differently names `frontUrl`, `realtimeUrl` or `portalUrl`
+beside `baseUrl`, and naming one changes nothing about the others.
+
+`installToken` goes with `provider`, and the two are a couple: a token is a row in
+**that** x-core's database, with its queue, its broker account and its credential
+behind it. Presented to another it finds nothing.
+
+### `start()` never throws
+
+Every outcome comes back as a value and is said in one loud line in the log:
+
+| `status`       | What it means                                                    |
+| -------------- | ---------------------------------------------------------------- |
+| `withdrawn`    | `enabled: false`. Nothing was done, and nothing is wrong         |
+| `ready`        | paired and declared: the SSO is serving                          |
+| `not-paired`   | no install token, or one the provider refused - in its own words |
+| `not-declared` | the provider was not told how this application plugs in          |
+
+A boot that died because a token was spent, because the broker was not up yet or
+because the provider was still starting would take the whole application with it -
+including the pages that have nothing to do with the SSO, and including whatever an
+operator would use to look at the problem. What is wanted instead is an application
+that stands up, says what is not working, and is repaired by a value in a
+configuration rather than by a container that will not stay alive.
+
+Until it is paired the guards **stand aside** rather than refuse: there is no cookie
+name to read, no sealing password and nothing to sign as, so refusing a reader would
+be refusing them for a reason that is not theirs.
 
 ## Install
 
@@ -110,24 +144,18 @@ import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 import { hmacInstance } from "./hmac";
 
 export const xcore = createXcoreBridge({
-  // Which of the two halves below is this process's, and nothing else can say it.
-  // This library reads no `process.env` - and a bundler would have frozen the value
-  // at build time anyway. Anything other than these two literals is refused.
-  NODE_ENV: process.env.NODE_ENV === "production" ? "prod" : "dev",
-  // WITH its port: the login window lives on the same names without one and answers
-  // 204 to anything, so a mistake here fails silently. One per environment, and
-  // `NODE_ENV` above picks. Drop `dev` to stand this library down there.
-  provider: {
-    dev: { baseUrl: "https://d-sso.example.com:13001" },
-    prod: { baseUrl: "https://x-core.example.com:13001" },
-  },
-  // The ONE value copied by hand, from the screen that mints it - one per
-  // environment. It stays here for the life of the application: what decides whether
-  // the pairing happens is the `INSTALLED` key, not the presence of this code.
-  installToken: {
-    dev: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
-    prod: "8hK2mQx_pT4vN9wZaLbYcRdEfGhJkMnPqSt7UvWx1Yz",
-  },
+  // ON, OR WITHDRAWN, and only the application can say it: this library reads no
+  // `process.env`, and a bundler would have frozen the value at build time anyway.
+  // At `false` it withdraws entirely and the application's own login guards it.
+  enabled: NODE_ENV == "production" ? true : false,
+  // ONE x-core, WITH its port: the login window lives on the same names without one
+  // and answers 204 to anything, so a mistake here fails silently - which is why the
+  // boot probes the address before declaring anything to it.
+  provider: { baseUrl: "https://x-core.example.com:13001" },
+  // The ONE value copied by hand, from the screen that mints it. It stays here for
+  // the life of the application: what decides whether the pairing happens is the
+  // `INSTALLED` key, not the presence of this token.
+  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
   routes: { basePath: "/api/auth", afterLogin: "/" },
 
   // Everything this application LENDS, in one key and nowhere else.
@@ -176,7 +204,7 @@ the pairing, and kept in the application's own store - so **nothing comes from a
 | `GET  <base>/session`         | the account, its details, its rights             |
 | `POST <base>/realtime-ticket` | what the page dials the socket with              |
 
-`<base>` is `routes.basePath`, `/auth` by default.
+`<base>` is `routes.basePath`, `/api/auth` by default - the path x-core's console composes into the callback it records, so an application that configures nothing answers where it was declared.
 
 ## The session
 
@@ -274,9 +302,9 @@ npm run build
 
 ## Notes
 
-- Nothing here reads `process.env`, opens a store or holds a secret. Read env in the service layer and pass plain config - `NODE_ENV` included, which is why it is a key of the configuration rather than something this library looks up.
+- Nothing here reads `process.env`, opens a store or holds a secret. Read env in the service layer and pass plain config - `enabled` included, which is why it is a key of the configuration rather than something this library looks up.
 - The HMAC runtime is injected whole: this library signs with it and owns no credential of its own.
-- Provider addresses are written down in the library, per environment, not configured per deployment. `provider` is required all the same, because it is the one address whose mistake is silent.
+- One address is configured, `provider.baseUrl`, and the other three are derived from it. It is required because it is the one whose mistake is silent, which is why the boot probes it before declaring anything to it.
 - The session cookie is sealed AES-256-GCM. The token pair IS the session: no local refresh chain. Changing `session.password` signs everyone out.
 - `dependGlobalRessource` is an array and is sent whether it is empty or not.
 - One process holds its realtime tickets in memory and pairs on its own. Several need a shared `realtime.tickets` store, and an election OUTSIDE this library: every worker calls `load()`, the elected one calls `start()` - see [Running several processes](./docs/multi-process.md).

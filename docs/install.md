@@ -11,7 +11,7 @@ Concretely, it will not run against anything else:
 - the identity model is x-core's: the HMAC clientId IS the SSO identity. There is no `client_id` / `client_secret` pair, no OAuth discovery document, no JWKS, no OIDC. Pointing this at an OAuth2 or OIDC provider does not fail politely - nothing matches;
 - the permissions are x-core's `resource:action` catalogue, recomputed per account and answered whole with every `me`;
 - the realtime protocol is x-core's, down to its close codes;
-- the provider addresses are **written into the library** ([`src/providers.ts`](../src/providers.ts)), per environment.
+- the provider addresses are **derived from the one an application writes** ([`src/provider.ts`](../src/provider.ts)): the login window is the API's host without its port, the socket is one port further, and the portal comes back with the pairing.
 
 It also needs an x-core recent enough to serve `POST /api/v1/portal/install`. Against an older one, everything works except installing: the credential has to be provisioned by hand through `POST /api/v1/sso/consumer/config` and delivered over the broker, and this library is then given a store that already holds it.
 
@@ -35,7 +35,7 @@ Three things follow from that, and they are the whole point:
 
 **A failure lands on a form.** It used to land on the first boot of a service nobody was watching, hours later, with the code already spent - and the person who could have fixed it had gone home. Now a key that opens nothing, a name already taken, a manager that is down: all of it refuses in front of whoever can do something about it.
 
-**The borrowed key does not survive.** The infrastructure manager key an operator pasted in to build the reservation is revoked on the manager itself, at both ends of the code's life: when the application collects its credential, and when the code is deleted.
+**The manager key is the operator's, and it is kept.** The infrastructure manager key pasted in to build the reservation is sealed onto the row - it is the only thing that can take the broker account back down - and x-core never turns it off. One key installs as many applications as an operator has to install, and it is on the manager that they revoke it when they are done. Only the address it is pinned to is required over there; an expiry is welcome and not demanded.
 
 **Deleting the code is a cancellation.** The row on that screen is the only thing that knows a broker account and an SSO identity were created for an application that never arrived. Deleting it takes the credential, the consumer, the propagation target and the broker account back down, in that order. Nothing is left under a name the next attempt would be refused for.
 
@@ -48,32 +48,36 @@ the application:
 
 ```ts
 createXcoreBridge({
-  // Which of the two environments this process is, and only the application can say
-  // it: this library reads no `process.env`, and a bundler freezes that value at
-  // build time anyway. `"dev"` or `"prod"`, and anything else throws rather than be
-  // guessed - read as dev, a wrong value stands a production process down and leaves
-  // its local login facing the internet, without a word.
-  NODE_ENV: process.env.NODE_ENV === "production" ? "prod" : "dev",
-
-  // The provider, one per environment. `baseUrl` is the API WITH its port: the login
-  // window lives on the same names without one and answers 204 to anything it does
-  // not know, so an application pointed at it declares itself "successfully" at every
-  // boot while nothing exists on the other side.
+  // ON, OR WITHDRAWN. The first key, because it decides every other one.
   //
-  // Which of the two is used is decided by `NODE_ENV` above: the same configuration
-  // ships to both. `dev` is optional - without it this library stands down in
-  // development and the application keeps its own local login.
-  provider: {
-    dev: { baseUrl: "https://d-sso.example.com:13001" },
-    prod: { baseUrl: "https://x-core.example.com:13001" },
-  },
+  // At `false` this library WITHDRAWS: no pairing, no declaration, no session, no
+  // socket. `start()` hands back without doing anything, the guards let everything
+  // through, and what signs anybody in is this application's own affair. It is a
+  // decision rather than a fault: it does not throw.
+  //
+  // It is NOT a "dev mode", it is a switch, and the application computes it. A
+  // development machine that wants the real chain writes `enabled: true` and never
+  // looks at it again.
+  //
+  // PASSED, NOT READ: this library reads no `process.env`. A bundler freezes that
+  // value at build time anyway, so read from inside it would carry what was true on
+  // the machine that built the image.
+  enabled: NODE_ENV == "production" ? true : false,
 
-  // One pairing code per environment, each minted against its own x-core. It stays
-  // here for the life of the application: `INSTALLED` decides, not its presence.
-  installToken: {
-    dev: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
-    prod: "8hK2mQx_pT4vN9wZaLbYcRdEfGhJkMnPqSt7UvWx1Yz",
-  },
+  // ONE x-core, named by its API WITH its port, and the only address this
+  // application writes itself. The login window lives on the same names without the
+  // port and answers 204 to anything it does not know - so an application pointed at
+  // it declares itself "successfully" at every boot while nothing exists on the other
+  // side. The boot probes the address before declaring anything to it.
+  //
+  // The other three addresses are derived: the login window is this host without the
+  // port, the socket is one port further, and the portal comes back with the pairing.
+  provider: { baseUrl: "https://x-core.example.com:13001" },
+
+  // The install token minted on the console, and the ONE value an operator copies out
+  // of this whole flow. It stays here for the life of the application: `INSTALLED`
+  // decides whether it is exchanged, not its presence.
+  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
   di: { hmac: { … }, environment: { load, save } },
 });
 ```
@@ -98,7 +102,7 @@ Two things follow, and they are the two that made the old shape fragile.
 The code **stays in the configuration**. There is nothing to remove after the first
 boot, so nothing to forget to remove. And since it is not read once the key is set, a
 deployment that keeps it does not spend it a second time - it would not open anything
-anyway: x-core deleted the row and revoked the manager key the moment it was spent.
+anyway: x-core deleted the row the moment it was spent.
 
 The state is **written**, not inferred. The question "is this already installed?" used
 to be answered by looking for a credential in the store, which is indirect evidence: a
@@ -134,7 +138,7 @@ What it does is small, and smaller than it looks:
 | 1    | this library | reads `di.environment.load()` and looks at `INSTALLED`                                             |
 | 2    | this library | `POST {provider}/api/v1/portal/install`, **unsigned**, **no body**                                 |
 | 3    | x-core       | reads the reservation, answers it whole and deletes the row                                        |
-| 4    | x-core       | **revokes** the manager key it borrowed: nothing is left for it                                    |
+| 4    | x-core       | leaves the manager key alone: it is the operator's, and it installs the next one too               |
 | 5    | this library | opens the propagation queue; the credential arrives on it and goes through `di.hmac.setCredential` |
 | 6    | this library | records the whole answer, `INSTALLED` included, in one `save`                                      |
 | 7    | this library | declares the consumer, signed, as every later boot does                                            |
@@ -146,6 +150,43 @@ be requiring the outcome as the input.
 **No body**, and that is deliberate. An application that could still send its own
 callback URL here would be an application able to point somebody else's installation
 at itself.
+
+### It never throws
+
+Everything above comes back as a value, and is said in one loud line in the log:
+
+```ts
+const started = await xcore.start();
+if (!started.ok) console.error(`[app] the SSO is not serving (${started.status}): ${started.reason}`);
+```
+
+| `status`       | What it means                                                        |
+| -------------- | -------------------------------------------------------------------- |
+| `ready`        | paired and declared: the SSO is serving                              |
+| `not-paired`   | no install token, or one the provider refused - in **its own words** |
+| `not-declared` | the provider was not told how this application plugs in              |
+| `withdrawn`    | `enabled: false`: this library withdrew, and nothing is wrong        |
+
+A boot that died because a token was spent, because the broker was not up yet or
+because the provider was still starting would take the whole application with it -
+including the pages that have nothing to do with the SSO, and including whatever an
+operator would use to look at the problem. So it stands up, says what is not working,
+and is repaired by a value in a configuration rather than by a container that will not
+stay alive.
+
+Until it is paired the guards **stand aside** rather than refuse: there is no cookie
+name to read, no sealing password and nothing to sign as, so refusing a reader would be
+refusing them for a reason that is not theirs.
+
+The five refusals worth recognising, and they are x-core's own sentences:
+
+| What x-core answers                                                       | What to do                                                                                                        |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `Unknown install token`                                                   | it was never minted, or against another x-core                                                                    |
+| `This install token was withdrawn`                                        | somebody revoked it from the console                                                                              |
+| `This install token has expired`                                          | mint a new one                                                                                                    |
+| `This install token was redeemed a moment ago`                            | already spent: mint a new one                                                                                     |
+| `This install token carries no reservation: delete it and mint a new one` | a DRAFT - the form was left half finished, so there is no queue, no broker account and no credential to hand over |
 
 ### The queue
 

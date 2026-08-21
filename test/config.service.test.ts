@@ -17,7 +17,7 @@ const serviceFor = (provider: ReturnType<typeof stubProvider>) => {
   const http = new SsoHttpClient({ apiBase: API_BASE, identity, hmac: stubHmac(provider) });
   return new SsoConfigService({
     http,
-    frontUrl: "https://sso.example.com",
+    frontUrl: () => "https://sso.example.com",
     identity,
     retry: { attempts: 3, delayMs: 0 },
     // Injected so a test does not wait out a backoff it is not testing.
@@ -109,7 +109,7 @@ describe("declaring this application at boot", () => {
     const http = new SsoHttpClient({ apiBase: API_BASE, identity, hmac: stubHmac(provider) });
     const service = new SsoConfigService({
       http,
-      frontUrl: "https://sso.example.com",
+      frontUrl: () => "https://sso.example.com",
       identity,
       retry: { attempts: 3, delayMs: 0 },
       sleep: () => Promise.resolve(),

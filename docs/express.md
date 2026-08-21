@@ -32,9 +32,7 @@ is minted at the first boot and kept in the application's own store.
 here for the life of the application:
 
 ```ts
-installToken: {
-  prod: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o";
-}
+installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
 ```
 
 There is no `install()` to call. What decides whether the pairing happens is not the
@@ -53,32 +51,36 @@ import { accountStore } from "./account-store";
 const CLIENT_ID = () => xcore.environment.SSO_CLIENT_ID as string;
 
 export const xcore = createXcoreBridge({
-  // Which of the two environments this process is, and only the application can say
-  // it: this library reads no `process.env`, and a bundler freezes that value at
-  // build time anyway. `"dev"` or `"prod"`, and anything else throws rather than be
-  // guessed - read as dev, a wrong value stands a production process down and leaves
-  // its local login facing the internet, without a word.
-  NODE_ENV: process.env.NODE_ENV === "production" ? "prod" : "dev",
-
-  // The provider, one per environment. `baseUrl` is the API WITH its port: the login
-  // window lives on the same names without one and answers 204 to anything it does
-  // not know, so an application pointed at it declares itself "successfully" at every
-  // boot while nothing exists on the other side.
+  // ON, OR WITHDRAWN. The first key, because it decides every other one.
   //
-  // Which of the two is used is decided by `NODE_ENV` above: the same configuration
-  // ships to both. `dev` is optional - without it this library stands down in
-  // development and the application keeps its own local login.
-  provider: {
-    dev: { baseUrl: "https://d-sso.example.com:13001" },
-    prod: { baseUrl: "https://x-core.example.com:13001" },
-  },
+  // At `false` this library WITHDRAWS: no pairing, no declaration, no session, no
+  // socket. `start()` hands back without doing anything, the guards let everything
+  // through, and what signs anybody in is this application's own affair. It is a
+  // decision rather than a fault: it does not throw.
+  //
+  // It is NOT a "dev mode", it is a switch, and the application computes it. A
+  // development machine that wants the real chain writes `enabled: true` and never
+  // looks at it again.
+  //
+  // PASSED, NOT READ: this library reads no `process.env`. A bundler freezes that
+  // value at build time anyway, so read from inside it would carry what was true on
+  // the machine that built the image.
+  enabled: NODE_ENV == "production" ? true : false,
 
-  // One pairing code per environment, each minted against its own x-core. It stays
-  // here for the life of the application: `INSTALLED` decides, not its presence.
-  installToken: {
-    dev: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
-    prod: "8hK2mQx_pT4vN9wZaLbYcRdEfGhJkMnPqSt7UvWx1Yz",
-  },
+  // ONE x-core, named by its API WITH its port, and the only address this
+  // application writes itself. The login window lives on the same names without the
+  // port and answers 204 to anything it does not know - so an application pointed at
+  // it declares itself "successfully" at every boot while nothing exists on the other
+  // side. The boot probes the address before declaring anything to it.
+  //
+  // The other three addresses are derived: the login window is this host without the
+  // port, the socket is one port further, and the portal comes back with the pairing.
+  provider: { baseUrl: "https://x-core.example.com:13001" },
+
+  // The install token minted on the console, and the ONE value an operator copies out
+  // of this whole flow. It stays here for the life of the application: `INSTALLED`
+  // decides whether it is exchanged, not its presence.
+  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
 
   session: {
     // No password and no name: the first is minted at the first boot, the second is
@@ -357,7 +359,7 @@ if (held) {
 
 - `app.set("trust proxy", true)` behind a relay, or every session is filed under the container's address.
 - `await xcore.start()` before `listen`, and leave it there: it is skipped in silence once a credential is in the store.
-- The pairing code stays in the service for the life of the application. It is never looked at again once `INSTALLED` is true, and it opens nothing anyway: x-core deleted its row and revoked the manager key the moment it was spent.
+- The pairing code stays in the service for the life of the application. It is never looked at again once `INSTALLED` is true, and it opens nothing anyway: x-core deleted its row the moment it was spent.
 - Several workers: every one calls `await xcore.load()`, the elected one calls `await xcore.start()`, and they share a `realtime.tickets` store so a ticket minted on one is spendable on another. See [Running several processes](./multi-process.md).
 - The sealing password is minted at the first boot and kept under `SSO_SESSION_PASSWORD`. Deleting that key signs everyone out at once, and the next boot mints a new one.
 - Read `process.env` in this service layer, never in the library.

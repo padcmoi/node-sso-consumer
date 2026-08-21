@@ -45,9 +45,14 @@ const withResolve = (resolve: () => Promise<Resolution>) => {
 
   return new SsoMiddleware({
     auth,
-    config: new SsoConfigService({ http, frontUrl: "https://sso.example.com", identity }),
+    config: new SsoConfigService({ http, frontUrl: () => "https://sso.example.com", identity }),
     session: new SsoSessionService({ auth, identity }),
     realtime: null,
+    // On and serving: these tests are about what the guards do with an ACCOUNT.
+    // Withdrawn stands every door aside, and a bridge that is down shuts them all -
+    // two answers that do not vary per route.
+    withdrawn: () => false,
+    serving: () => true,
     resolve,
     portalUrl: () => PORTAL,
     basePath: "/api/auth",
@@ -136,13 +141,20 @@ describe("the session guard", () => {
     expect(res.header("Location")).toBe(PORTAL);
   });
 
-  it("hands a provider that is unreachable to the error handler, rather than signing anyone out", async () => {
+  // A provider that cannot be reached is a reader nothing was learned about, so it
+  // is refused like any other - to the portal. Answered HERE and not handed to the
+  // error handler: a refusal that depends on that handler being mounted is one an
+  // application can forget to install, and forgetting it let the request carry on.
+  it("refuses to the portal when the provider cannot be reached, rather than carrying on", async () => {
     const next = vi.fn();
+    const res = stubResponse();
     const failing = withResolve(() => Promise.reject(new SsoError("UNREACHABLE", "down")));
 
-    await failing.requireSession()(stubRequest("GET", "/api/queues"), stubResponse(), next);
+    await failing.requireSession()(stubRequest("GET", "/api/queues"), res, next);
 
-    expect(next).toHaveBeenCalledWith(expect.any(SsoError));
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(302);
+    expect(res.header("Location")).toBe(PORTAL);
   });
 });
 
@@ -157,21 +169,30 @@ describe("the permission guard", () => {
     expect(next).toHaveBeenCalledWith();
   });
 
-  it("refuses when one is missing, naming it", async () => {
+  // `403` where it stands, and never a redirect: the account IS signed in and
+  // simply does not hold the right, so signing in again would change nothing and
+  // loop. Answered here rather than handed on, for the reason above.
+  it("refuses when one is missing, naming it, without redirecting", async () => {
     const req = stubRequest("GET", "/api/queues");
     req.me = anAccountRead(["infrastructure:view-queues"]);
     const next = vi.fn();
+    const res = stubResponse();
 
-    await middlewareFor(null).requirePermissions("view-queues", "delete-queues")(req, stubResponse(), next);
+    await middlewareFor(null).requirePermissions("view-queues", "delete-queues")(req, res, next);
 
-    expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: "FORBIDDEN" }));
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+    expect(res.body() ?? "").toContain("delete-queues");
   });
 
   it("refuses a request carrying no session at all", async () => {
     const next = vi.fn();
-    await middlewareFor(null).requirePermissions("view-queues")(stubRequest("GET", "/api/queues"), stubResponse(), next);
+    const res = stubResponse();
 
-    expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: "FORBIDDEN" }));
+    await middlewareFor(null).requirePermissions("view-queues")(stubRequest("GET", "/api/queues"), res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
   });
 });
 
@@ -199,12 +220,16 @@ describe("the error handler", () => {
     expect(res.header("Location")).toBe(PORTAL);
   });
 
-  it("answers 503 on this application's own problems, saying nothing about them", () => {
+  // Everything that is not FORBIDDEN is ONE answer, because in every one of them
+  // nobody was identified: session over, provider refusing, provider unreachable,
+  // credential never delivered. To the portal - and `500` only when there is no
+  // portal to send anybody to, which is an application that never paired.
+  it("refuses to the portal on this application's own problems, saying nothing about them", () => {
     const res = stubResponse();
     middlewareFor(null).errors()(new SsoError("NO_CREDENTIAL", "nothing propagated"), stubRequest("GET", "/"), res, vi.fn());
 
-    expect(res.statusCode).toBe(503);
-    expect(JSON.parse(res.body() ?? "{}")).toEqual({ error: "The identity provider is unavailable" });
+    expect(res.statusCode).toBe(302);
+    expect(res.header("Location")).toBe(PORTAL);
   });
 
   it("passes anything that is not its own along", () => {
