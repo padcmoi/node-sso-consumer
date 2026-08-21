@@ -1,16 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { ENV } from "../src/environment.js";
 import { createXcoreBridge } from "../src/xcore-bridge.js";
-import { PROVIDERS } from "../src/providers.js";
 import { API_BASE, aPairing, paired, readOnlyHmac, stubEnvironment, stubHmac, stubProvider } from "./support.js";
+
+// The credential queue is a broker connection, and a test may not open one. What it
+// stands in for is covered where it belongs: `startPropagation` decides on the nine
+// values the pairing wrote, and those are asserted below as store contents.
+vi.mock("../src/propagation.js", () => ({ startPropagation: vi.fn(() => Promise.resolve(null)) }));
 
 const CONFIG_PATH = "/api/v1/sso/consumer/config";
 const INSTALL_PATH = "/api/v1/portal/install";
-
-// Which environment a bridge runs against is STATED by the application, so a test
-// says it the way a deployment does: one key, no environment variable to stub, and
-// nothing global left behind between two tests. Everything here asserts against
-// `PROVIDERS.prod`.
 
 /**
  * A bridge on a store that already holds a paired application, which is what every
@@ -18,8 +17,8 @@ const INSTALL_PATH = "/api/v1/portal/install";
  */
 const bridgeFor = (provider: ReturnType<typeof stubProvider>, overrides: Partial<Parameters<typeof createXcoreBridge>[0]> = {}) =>
   createXcoreBridge({
-    NODE_ENV: "prod",
-    provider: { prod: { baseUrl: API_BASE } },
+    enabled: true,
+    provider: { baseUrl: API_BASE },
     // Nothing may open a socket in a test: the accounts are followed on demand.
     live: { enabled: false },
     retry: { attempts: 1, delayMs: 0 },
@@ -32,9 +31,9 @@ const freshBridge = (provider: ReturnType<typeof stubProvider>, overrides: Recor
   const store = stubEnvironment();
   const hmac = stubHmac(provider);
   const bridge = createXcoreBridge({
-    NODE_ENV: "prod",
-    provider: { prod: { baseUrl: API_BASE } },
-    installToken: { prod: "the-code" },
+    enabled: true,
+    provider: { baseUrl: API_BASE },
+    installToken: "ycsvtsa_the-token",
     live: { enabled: false },
     retry: { attempts: 1, delayMs: 0 },
     di: { hmac, environment: store },
@@ -43,88 +42,112 @@ const freshBridge = (provider: ReturnType<typeof stubProvider>, overrides: Recor
   return { bridge, store, hmac };
 };
 
-// `provider` is null only when this library is standing down, and none of these
-// bridges is: they all say `prod` and they all name a prod endpoint.
-const addressesOf = (bridge: ReturnType<typeof createXcoreBridge>) => bridge.provider ?? PROVIDERS.dev;
+/** The probe's refusal, then the declaration's `204`. In that order, always. */
+const answering = () =>
+  stubProvider()
+    .on("POST", INSTALL_PATH, { status: 201, body: { data: aPairing() } })
+    .on("PUT", CONFIG_PATH, { status: 401 })
+    .on("PUT", CONFIG_PATH, { status: 204 })
+    .global();
 
-describe("which environment it is, as the application stated it", () => {
-  it("takes the half it was told to take, and not the other", () => {
-    const both = {
-      provider: { dev: { baseUrl: "https://dev.example:1" }, prod: { baseUrl: "https://prod.example:1" } },
-      live: { enabled: false },
-      di: { hmac: stubHmac(stubProvider()), environment: paired() },
-    };
-
-    expect(createXcoreBridge({ ...both, NODE_ENV: "dev" }).provider?.apiBase).toBe("https://dev.example:1");
-    expect(createXcoreBridge({ ...both, NODE_ENV: "prod" }).provider?.apiBase).toBe("https://prod.example:1");
-  });
-
-  // The absence of a dev provider is a decision, so it is a state rather than a
-  // throw: no pairing, no declaration, no SSO, and the application keeps whatever
-  // local login it has.
-  it("stands down when it is dev and there is no dev provider", async () => {
+describe("on, or withdrawn", () => {
+  it("does nothing at all when it is off, and does not call that a failure", async () => {
     const provider = stubProvider();
     const bridge = createXcoreBridge({
-      NODE_ENV: "dev",
-      provider: { prod: { baseUrl: API_BASE } },
-      installToken: { prod: "the-code" },
-      live: { enabled: false },
+      enabled: false,
+      provider: { baseUrl: API_BASE },
+      installToken: "ycsvtsa_the-token",
       di: { hmac: stubHmac(provider), environment: stubEnvironment() },
     });
 
-    expect(bridge.provider).toBeNull();
-    expect(await bridge.start()).toBeNull();
+    const result = await bridge.start();
+
+    // No pairing, no declaration, no probe: the store is not even read.
     expect(provider.seen).toHaveLength(0);
+    expect(result).toMatchObject({ ok: true, status: "withdrawn", paired: false, declared: false });
   });
 
-  // Anything else read as `dev` would be the silent failure this key exists to
-  // remove: a production process standing down and offering its local login.
-  it("refuses a value that is neither, rather than guessing one", () => {
-    expect(() =>
-      createXcoreBridge({
-        NODE_ENV: "production" as never,
-        provider: { prod: { baseUrl: API_BASE } },
-        live: { enabled: false },
-        di: { hmac: stubHmac(stubProvider()), environment: paired() },
-      })
-    ).toThrow(/must be "dev" or "prod"/);
+  // What guards a withdrawn application is its own login, so every door stands
+  // aside. Refusing instead would make an application that works perfectly answer
+  // `403` on every route, or loop its readers into a portal it is not paired with.
+  it("lets its guards through when it is off", async () => {
+    const bridge = createXcoreBridge({
+      enabled: false,
+      provider: { baseUrl: API_BASE },
+      di: { hmac: stubHmac(stubProvider()), environment: stubEnvironment() },
+    });
+    await bridge.start();
+
+    const req = { headers: {} };
+    const res = { statusCode: 200, getHeader: () => undefined, setHeader: () => undefined, end: () => undefined };
+
+    const passed: string[] = [];
+    await bridge.middleware.routes()(req, res, () => passed.push("routes"));
+    await bridge.middleware.requireSession()(req, res, () => passed.push("session"));
+    await bridge.middleware.requirePermissions("anything")(req, res, () => passed.push("permissions"));
+
+    expect(passed).toEqual(["routes", "session", "permissions"]);
+    expect(res.statusCode).toBe(200);
+    expect(await bridge.session(req, res)).toBeNull();
   });
 });
 
-describe("the addresses it runs against", () => {
-  it("takes the API as `baseUrl` and keeps the environment's other three", () => {
-    const bridge = bridgeFor(stubProvider());
+describe("the addresses, from the one that was written", () => {
+  it("derives the login window and the socket from the API base", () => {
+    const bridge = bridgeFor(stubProvider(), { provider: { baseUrl: "https://x-core.example.ovh:13001" } });
 
-    expect(addressesOf(bridge).apiBase).toBe(API_BASE);
-    expect(addressesOf(bridge).portalUrl).toBe(PROVIDERS.prod.portalUrl);
-    expect(addressesOf(bridge).realtimeUrl).toBe(PROVIDERS.prod.realtimeUrl);
+    expect(bridge.provider.apiBase).toBe("https://x-core.example.ovh:13001");
+    // The login window lives on the same names WITHOUT the port - which is exactly
+    // the mistake `baseUrl` invites, and why the boot probes the address.
+    expect(bridge.provider.frontUrl).toBe("https://x-core.example.ovh");
+    // One port further, which is x-core's own layout: `3002` beside `3001`.
+    expect(bridge.provider.realtimeUrl).toBe("wss://x-core.example.ovh:13002/realtime");
   });
 
-  it("lets an object override the lot, for another ecosystem", () => {
+  it("lets a deployment name any of them, for a stack laid out differently", () => {
     const bridge = bridgeFor(stubProvider(), {
-      provider: { prod: { baseUrl: "https://other.example:1", portalUrl: "https://other.example/portal" } },
+      provider: { baseUrl: API_BASE, frontUrl: "https://login.example", realtimeUrl: "wss://rt.example/realtime" },
     });
 
-    expect(addressesOf(bridge).apiBase).toBe("https://other.example:1");
-    expect(addressesOf(bridge).portalUrl).toBe("https://other.example/portal");
-    expect(addressesOf(bridge).frontUrl).toBe(PROVIDERS.prod.frontUrl);
+    expect(bridge.provider.frontUrl).toBe("https://login.example");
+    expect(bridge.provider.realtimeUrl).toBe("wss://rt.example/realtime");
+  });
+
+  // Carried, it fails inside a signature as a `401` that reads like a credential
+  // problem, three files from the value that caused it.
+  it("refuses a base that is not an address", () => {
+    expect(() =>
+      createXcoreBridge({
+        enabled: true,
+        provider: { baseUrl: "x-core.example.ovh" },
+        di: { hmac: stubHmac(stubProvider()), environment: paired() },
+      })
+    ).toThrow(/is not an address/);
+  });
+
+  // The portal is x-core's own front and x-core is what knows where it is served, so
+  // it is read THROUGH the store rather than captured when the bridge is built.
+  it("takes the portal from what the pairing wrote", async () => {
+    const store = paired({ [ENV.SSO_PORTAL_URL]: "https://portal.example/" });
+    const bridge = bridgeFor(stubProvider(), {
+      provider: { baseUrl: API_BASE, portalUrl: "https://written-down.example/" },
+      di: { hmac: stubHmac(stubProvider()), environment: store },
+    });
+
+    expect(bridge.portalUrl).toBe("https://written-down.example/");
+    await bridge.load();
+    expect(bridge.portalUrl).toBe("https://portal.example/");
   });
 });
 
-describe("the boot: read, pair if it must, declare", () => {
-  const answering = () =>
-    stubProvider()
-      .on("POST", INSTALL_PATH, { status: 201, body: { data: aPairing() } })
-      .on("PUT", CONFIG_PATH, { status: 401 })
-      .on("PUT", CONFIG_PATH, { status: 204 })
-      .global();
-
-  it("exchanges the code when INSTALLED is absent, and records the whole of it", async () => {
+describe("the boot: read, pair if it must, open the queue, declare", () => {
+  it("exchanges the token when INSTALLED is absent, and records the whole of it", async () => {
     const provider = answering();
     const { bridge, store, hmac } = freshBridge(provider);
 
-    await bridge.start();
+    const result = await bridge.start();
 
+    expect(result).toMatchObject({ ok: true, status: "ready", paired: true, declared: true });
     // NOTHING is written into the credential store here, and that is not an
     // omission. x-core keeps `hashClientSecret(secret, pepper)` and verifies against
     // that; the pepper never travels, so an application that hashed the secret this
@@ -144,13 +167,30 @@ describe("the boot: read, pair if it must, declare", () => {
     expect(String(store.held[ENV.SSO_SESSION_PASSWORD]).length).toBeGreaterThanOrEqual(32);
   });
 
+  it("presents the token unsigned, in a header, with no body", async () => {
+    const provider = answering();
+    const { bridge } = freshBridge(provider);
+
+    await bridge.start();
+
+    const [install] = provider.calls("POST", INSTALL_PATH);
+    // The one unsigned call of this whole library: what it collects is the very
+    // credential a signature would be built from.
+    expect(install.clientId).toBeUndefined();
+    expect(install.headers["x-install-token"]).toBe("ycsvtsa_the-token");
+    // No body, and that is the shape of the contract: an application still able to
+    // send its own callback URL would be one able to point somebody else's
+    // installation at itself.
+    expect(JSON.parse(install.body ?? "null")).toEqual({});
+  });
+
   it("writes INSTALLED in the SAME save as everything it announces", async () => {
     const { bridge, store } = freshBridge(answering());
     await bridge.start();
 
     // Written first, a boot falling between the two would believe itself paired
     // holding none of it - and would never try again, since it stops looking at the
-    // code.
+    // token.
     const pairing = store.saves.find((values) => ENV.INSTALLED in values);
     expect(pairing?.[ENV.SSO_CLIENT_ID]).toBe("oauth-test");
     expect(pairing?.[ENV.HMAC_PROPAGATION_SECRET]).toBe("prop-secret");
@@ -171,20 +211,63 @@ describe("the boot: read, pair if it must, declare", () => {
     });
   });
 
-  it("does not even look at the code once INSTALLED is true", async () => {
+  it("does not even look at the token once INSTALLED is true", async () => {
     const provider = stubProvider().on("PUT", CONFIG_PATH, { status: 401 }).on("PUT", CONFIG_PATH, { status: 204 }).global();
 
-    // The code stays in the configuration for the life of the application: what
+    // The token stays in the configuration for the life of the application: what
     // decides is the key, not its presence.
-    await bridgeFor(provider, { installToken: { prod: "the-code" } }).start();
+    await bridgeFor(provider, { installToken: "ycsvtsa_the-token" }).start();
 
     expect(provider.calls("POST", INSTALL_PATH)).toHaveLength(0);
   });
 
-  it("refuses to boot an unpaired application that carries no code, and says where to get one", async () => {
-    const { bridge } = freshBridge(stubProvider(), { installToken: undefined });
+  // The whole reason `start()` answers rather than throws: an application whose
+  // token was refused stands up, says so in one line, and is repaired by a value in
+  // a configuration rather than by a container that will not stay alive.
+  it("stands up and says so when there is no token to exchange", async () => {
+    const error = vi.fn();
+    const { bridge } = freshBridge(stubProvider(), { installToken: undefined, logger: { error } });
 
-    await expect(bridge.start()).rejects.toThrow(/not paired and carries no prod install token/);
+    const result = await bridge.start();
+
+    expect(result).toMatchObject({ ok: false, status: "not-paired", paired: false, declared: false });
+    expect(result.reason).toMatch(/carries no install token/);
+    expect(error).toHaveBeenCalled();
+    expect(bridge.serving).toBe(false);
+  });
+
+  // Unknown, withdrawn, expired, already redeemed, or still a draft - a form
+  // somebody left half finished, with no queue, no broker account and no credential
+  // behind it. x-core's own words are what an operator needs, so they travel.
+  it("repeats the provider's own words when a token is refused", async () => {
+    const provider = stubProvider()
+      .on("POST", INSTALL_PATH, {
+        status: 409,
+        body: { message: "This install token carries no reservation: delete it and mint a new one" },
+      })
+      .global();
+    const { bridge } = freshBridge(provider);
+
+    const result = await bridge.start();
+
+    expect(result.status).toBe("not-paired");
+    expect(result.reason).toContain("carries no reservation");
+    // Nothing was declared, and nothing was written: the store is as it was.
+    expect(provider.calls("PUT", CONFIG_PATH)).toHaveLength(0);
+  });
+
+  // The login window answers `204` to anything it does not know, so an application
+  // pointed at it declares itself "successfully" at every boot with nothing on the
+  // other side. Only a `401` proves the far side checks signatures at all.
+  it("declares nothing to an address that does not refuse an unsigned call", async () => {
+    const provider = stubProvider().on("PUT", CONFIG_PATH, { status: 204 }).global();
+
+    const result = await bridgeFor(provider).start();
+
+    expect(result).toMatchObject({ ok: false, status: "not-declared", paired: true });
+    expect(result.reason).toMatch(/does not point at the SSO provider/);
+    // The probe, and nothing after it.
+    expect(provider.calls("PUT", CONFIG_PATH)).toHaveLength(1);
   });
 
   // A store that can only be written into by the broker is what every consumer has,
@@ -193,9 +276,9 @@ describe("the boot: read, pair if it must, declare", () => {
     const provider = answering();
     const store = stubEnvironment();
     const bridge = createXcoreBridge({
-      NODE_ENV: "prod",
-      provider: { prod: { baseUrl: API_BASE } },
-      installToken: { prod: "the-code" },
+      enabled: true,
+      provider: { baseUrl: API_BASE },
+      installToken: "ycsvtsa_the-token",
       live: { enabled: false },
       retry: { attempts: 1, delayMs: 0 },
       di: { hmac: readOnlyHmac(provider), environment: store },
@@ -215,14 +298,7 @@ describe("the boot: read, pair if it must, declare", () => {
     delete store.held[ENV.SSO_SESSION_PASSWORD];
     const warn = vi.fn();
 
-    await createXcoreBridge({
-      NODE_ENV: "prod",
-      provider: { prod: { baseUrl: API_BASE } },
-      live: { enabled: false },
-      retry: { attempts: 1, delayMs: 0 },
-      logger: { warn },
-      di: { hmac: stubHmac(provider), environment: store },
-    }).start();
+    await bridgeFor(provider, { logger: { warn }, di: { hmac: stubHmac(provider), environment: store } }).start();
 
     expect(String(store.held[ENV.SSO_SESSION_PASSWORD]).length).toBeGreaterThanOrEqual(32);
     expect(warn).toHaveBeenCalled();
@@ -252,17 +328,14 @@ describe("the rights, read off what the provider answered", () => {
     return bridge;
   };
 
-  const withAccount = (global: string[], isRoot = false) => {
-    const req = {
-      headers: {},
-      me: {
-        user: { id: "user-1", email: "reader@example.com", displayName: "Reader", avatarUrl: null },
-        profile: {},
-        permissions: { global, isRoot, groups: [] },
-      },
-    };
-    return req;
-  };
+  const withAccount = (global: string[], isRoot = false) => ({
+    headers: {},
+    me: {
+      user: { id: "user-1", email: "reader@example.com", displayName: "Reader", avatarUrl: null },
+      profile: {},
+      permissions: { global, isRoot, groups: [] },
+    },
+  });
 
   it("lists this application's actions without their prefix", async () => {
     const bridge = await loaded();

@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+.git
+dist
+coverage
+.nuxt
+**/.nuxt
+.output
+**/.output
+.data
+**/.data
+*.log
+.trash

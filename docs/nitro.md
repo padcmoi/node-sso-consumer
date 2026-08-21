@@ -33,9 +33,7 @@ is minted at the first boot and kept in the application's own store.
 here for the life of the application:
 
 ```ts
-installToken: {
-  prod: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o";
-}
+installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
 ```
 
 There is no `install()` to call. What decides whether the pairing happens is not the
@@ -54,32 +52,36 @@ import { accountStore } from "./account-store";
 const CLIENT_ID = () => xcore.environment.SSO_CLIENT_ID as string;
 
 export const xcore = createXcoreBridge({
-  // Which of the two environments this process is, and only the application can say
-  // it: this library reads no `process.env`, and a bundler freezes that value at
-  // build time anyway. `"dev"` or `"prod"`, and anything else throws rather than be
-  // guessed - read as dev, a wrong value stands a production process down and leaves
-  // its local login facing the internet, without a word.
-  NODE_ENV: process.env.NODE_ENV === "production" ? "prod" : "dev",
-
-  // The provider, one per environment. `baseUrl` is the API WITH its port: the login
-  // window lives on the same names without one and answers 204 to anything it does
-  // not know, so an application pointed at it declares itself "successfully" at every
-  // boot while nothing exists on the other side.
+  // ON, OR WITHDRAWN. The first key, because it decides every other one.
   //
-  // Which of the two is used is decided by `NODE_ENV` above: the same configuration
-  // ships to both. `dev` is optional - without it this library stands down in
-  // development and the application keeps its own local login.
-  provider: {
-    dev: { baseUrl: "https://d-sso.example.com:13001" },
-    prod: { baseUrl: "https://x-core.example.com:13001" },
-  },
+  // At `false` this library WITHDRAWS: no pairing, no declaration, no session, no
+  // socket. `start()` hands back without doing anything, the guards let everything
+  // through, and what signs anybody in is this application's own affair. It is a
+  // decision rather than a fault: it does not throw.
+  //
+  // It is NOT a "dev mode", it is a switch, and the application computes it. A
+  // development machine that wants the real chain writes `enabled: true` and never
+  // looks at it again.
+  //
+  // PASSED, NOT READ: this library reads no `process.env`. A bundler freezes that
+  // value at build time anyway, so read from inside it would carry what was true on
+  // the machine that built the image.
+  enabled: NODE_ENV == "production" ? true : false,
 
-  // One pairing code per environment, each minted against its own x-core. It stays
-  // here for the life of the application: `INSTALLED` decides, not its presence.
-  installToken: {
-    dev: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
-    prod: "8hK2mQx_pT4vN9wZaLbYcRdEfGhJkMnPqSt7UvWx1Yz",
-  },
+  // ONE x-core, named by its API WITH its port, and the only address this
+  // application writes itself. The login window lives on the same names without the
+  // port and answers 204 to anything it does not know - so an application pointed at
+  // it declares itself "successfully" at every boot while nothing exists on the other
+  // side. The boot probes the address before declaring anything to it.
+  //
+  // The other three addresses are derived: the login window is this host without the
+  // port, the socket is one port further, and the portal comes back with the pairing.
+  provider: { baseUrl: "https://x-core.example.com:13001" },
+
+  // The install token minted on the console, and the ONE value an operator copies out
+  // of this whole flow. It stays here for the life of the application: `INSTALLED`
+  // decides whether it is exchanged, not its presence.
+  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
 
   session: {
     // No password and no name: the first is minted at the first boot, the second is
@@ -242,21 +244,34 @@ export default defineEventHandler(async (event) => {
 
 `server/plugins/sso.ts`
 
-A Nitro plugin is where the raw HTTP server is reachable, which is what the realtime bridge hangs on. It is also where the boot belongs: awaited before anything is served.
+A Nitro plugin is where the boot belongs: awaited before anything is served. It is also the nearest thing to the raw HTTP server, which is what the realtime bridge hangs on - though not directly, and that is worth a paragraph.
+
+**Nitro has no runtime hook that hands the server over.** `listen` belongs to the BUILD instance and a plugin runs inside the built one, so there is nothing to hook. What is reachable is the server behind the first request that arrives - `event.node.req.socket.server` - and the bridge is hung there, once. Node sets that property on every socket a server accepted and does not declare it in its own types, so it is the one place an integration reads defensively rather than with the compiler's help.
+
+Hung **once**, and the flag is not a micro-optimisation: a second `upgrade` listener on the same path means two handlers answering one upgrade, the second `handleUpgrade` throwing out of a promise nobody can catch, and that unhandled rejection is the worker gone and restarted for as long as anybody opens that page.
 
 ```ts
 export default defineNitroPlugin(async (nitro) => {
-  // Read the store, pair if `INSTALLED` says so, then declare. An app that failed
-  // to declare itself boots perfectly and refuses every sign-in afterwards.
-  await xcore.start();
+  // Read the store, pair if `INSTALLED` says so, open the credential queue, declare.
+  // It NEVER throws: what it did comes back as a value and is said in the log. A boot
+  // that died on a spent token would take the whole application with it.
+  const started = await xcore.start();
+  if (!started.ok) console.error(`[app] the SSO is not serving (${started.status}): ${started.reason}`);
 
-  nitro.hooks.hook("request", () => {
-    /* nothing: the middleware above carries the routes */
+  let hung = false;
+  nitro.hooks.hook("request", (event) => {
+    if (hung) return;
+    // Node sets `server` on every socket a server accepted and does not type it.
+    const socket = event.node.req.socket as unknown as {
+      server?: Parameters<typeof xcore.realtime.attach>[0];
+    };
+    if (!socket.server) return;
+
+    hung = true;
+    // The bridge returns for every upgrade that is not its own, so Nuxt's HMR socket
+    // in dev is untouched, and its path is matched EXACTLY.
+    xcore.realtime.attach(socket.server);
   });
-
-  // `listen` fires once the server exists. The bridge returns for every upgrade
-  // that is not its own, so Nuxt's HMR socket in dev is untouched.
-  nitro.hooks.hook("listen", (server) => xcore.realtime.attach(server));
 
   nitro.hooks.hook("close", () => xcore.close());
 });

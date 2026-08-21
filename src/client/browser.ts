@@ -76,7 +76,7 @@ export class SsoBrowserClient {
   constructor(private readonly options: SsoBrowserOptions = {}) {}
 
   private get base() {
-    return this.options.basePath ?? "/auth";
+    return this.options.basePath ?? "/api/auth";
   }
 
   /** The last account seen, pushed or read. Null until the first read lands. */
@@ -306,4 +306,4 @@ export class SsoBrowserClient {
 export const createSsoClient = (options: SsoBrowserOptions = {}) => new SsoBrowserClient(options);
 
 /** Where the middleware sends a browser that has to sign in. */
-export const signInUrl = (basePath = "/auth") => `${basePath}/sso/start`;
+export const signInUrl = (basePath = "/api/auth") => `${basePath}/sso/start`;

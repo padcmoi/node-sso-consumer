@@ -39,6 +39,19 @@ export interface SsoRealtimeBridgeOptions {
   /** The path the page dials on THIS host. */
   path?: string;
   tickets?: TicketStore;
+  /**
+   * Whether this bridge can hold anything, asked at each upgrade.
+   *
+   * A function, and asked at the upgrade rather than at `attach`: a boot that has
+   * not finished pairing has no credential to sign a handshake with, and an
+   * application that withdrew has no upstream at all.
+   *
+   * The upgrade is then LEFT ALONE rather than answered - and that is a refusal
+   * here, not a stand-aside: nothing else in the application listens on this path,
+   * so the socket never opens. A bridge that accepted it would be a live feed with
+   * no account behind it.
+   */
+  serving?(): boolean;
   logger?: SsoLogger;
 }
 
@@ -75,7 +88,13 @@ export class SsoRealtimeBridge {
    */
   attach(server: { on(event: "upgrade", listener: (req: IncomingMessage, socket: Duplex, head: Buffer) => void): unknown }) {
     server.on("upgrade", (req, socket, head) => {
+      if (this.options.serving?.() === false) return;
+
       const url = new URL(req.url ?? "/", "http://internal");
+      // Matched EXACTLY. A path that is a prefix of another means two handlers
+      // answer one upgrade, the second `handleUpgrade` throws out of a promise
+      // nobody can catch, and that unhandled rejection is the worker gone and
+      // restarted for as long as anybody opens that page.
       if (url.pathname !== this.path) return;
 
       const ticket = url.searchParams.get("ticket");
@@ -142,10 +161,8 @@ export class SsoRealtimeBridge {
 
     client.on("message", (raw: Buffer | ArrayBuffer | Buffer[]) => {
       const frame = textOf(raw);
-      // The one refusal. The account behind this socket was decided by the ticket;
-      // a page asking to be somebody else is a page asking for someone else's data.
-      if (isAuthFrame(frame)) {
-        this.options.logger?.warn?.("[sso] a page tried to send its own auth frame; refused");
+      if (!forwardable(frame)) {
+        this.options.logger?.warn?.("[sso] a frame from the page was refused: it named `auth`, or could not be read");
         return;
       }
       if (upstream.readyState === WebSocket.OPEN) upstream.send(frame);
@@ -163,9 +180,21 @@ const textOf = (raw: Buffer | ArrayBuffer | Buffer[]) => {
   return Buffer.from(new Uint8Array(raw)).toString("utf8");
 };
 
-const isAuthFrame = (frame: string) => {
+/**
+ * Whether a frame from the page may travel upstream.
+ *
+ * Two refusals, and both matter. An `auth` frame is refused because the account
+ * behind this socket was decided by the TICKET that opened it - a page asking to be
+ * somebody else is a page asking for somebody else's data.
+ *
+ * Anything that will not parse is refused too, and that is the stricter half:
+ * forwarded, it is a byte string this end never looked at, arriving at the provider
+ * over a signed connection that vouches for this application. What cannot be read
+ * cannot be vouched for.
+ */
+const forwardable = (frame: string) => {
   try {
-    return asFields(JSON.parse(frame))?.event === "auth";
+    return asFields(JSON.parse(frame))?.event !== "auth";
   } catch {
     return false;
   }
@@ -174,7 +203,11 @@ const isAuthFrame = (frame: string) => {
 /**
  * A close code a browser is allowed to receive.
  *
- * 1005 and 1006 are "no code" and "abnormal": they describe what happened to a
- * connection and cannot be SENT, so passing them on throws instead of closing.
+ * The provider's own `4xxx` travel through untouched: they mean "do not retry, sign
+ * in again", and a client cannot tell that from a transport failure any other way.
+ *
+ * Everything else becomes 1011. 1005 and 1006 are "no code" and "abnormal": they
+ * describe what happened to a connection and cannot be SENT, so passing them on
+ * throws instead of closing.
  */
-const usableCode = (code: number) => ((code >= 3000 && code <= 4999) || code === 1000 || code === 1001 ? code : 1011);
+const usableCode = (code: number) => (code === 1000 || (code >= 4000 && code <= 4999) ? code : 1011);

@@ -12,7 +12,14 @@
 //
 // Nothing reads `process.env`, opens a store or holds a secret.
 
-export { XcoreBridge, createXcoreBridge, type XcoreBridgeOptions, type XcoreInjection } from "./xcore-bridge.js";
+export {
+  XcoreBridge,
+  createXcoreBridge,
+  type XcoreBridgeOptions,
+  type XcoreInjection,
+  type SsoRefusal,
+  type XcoreStartResult,
+} from "./xcore-bridge.js";
 
 export { SsoConfigService, type SsoConfigServiceOptions } from "./config.service.js";
 export { SsoAuthService, type SsoAuthServiceOptions, type SsoResolution } from "./auth.service.js";
@@ -49,19 +56,9 @@ export { SsoHttpClient, type SsoHttpOptions, type XcoreHmacInjection, type HttpA
 export { ENV, SsoEnvironment, mintSessionPassword, type XcoreEnvironmentStore } from "./environment.js";
 
 export { createPermissionReader, holds, type PermissionReader } from "./permissions.js";
-export {
-  environmentOf,
-  installTokenFor,
-  PROVIDERS,
-  providerFor,
-  type InstallTokens,
-  type ProviderAddresses,
-  type ProviderConfig,
-  type ProviderEndpoint,
-  type ProviderEnvironment,
-} from "./providers.js";
+export { addressesOf, type ProviderAddresses, type ProviderEndpoint } from "./provider.js";
 
-export { SsoError, isSessionOver, type SsoErrorCode } from "./errors.js";
+export { SsoError, isSessionOver, statusOf, type SsoErrorCode } from "./errors.js";
 
 export { readMe, readSession } from "./parse.js";
 export { seal, unseal } from "./session/seal.js";

@@ -43,6 +43,14 @@ export const ENV = {
    * sign-out landing on nothing reads as broken rather than as stale.
    */
   SSO_PORTAL_URL: "SSO_PORTAL_URL",
+  /**
+   * The login window, when the provider names it.
+   *
+   * Derived from the API base otherwise - the same host without its port - which is
+   * how x-core's own deployments are laid out. Read through the store all the same,
+   * so a provider that starts answering it is followed without a release here.
+   */
+  SSO_FRONT_URL: "SSO_FRONT_URL",
   /** The look of the login screen. */
   SSO_TEMPLATE: "SSO_TEMPLATE",
   /** The gate, an ARRAY: empty means this application filters nothing. */
@@ -193,6 +201,22 @@ export class SsoEnvironment {
    */
   get portalUrl() {
     return text(this.ready, ENV.SSO_PORTAL_URL);
+  }
+
+  /** The login window as the provider named it, or nothing - see `portalUrl`. */
+  get frontUrl() {
+    return text(this.ready, ENV.SSO_FRONT_URL);
+  }
+
+  /**
+   * Whether the store has been read at all.
+   *
+   * Asked before a read that must not raise: a request arriving while a boot is
+   * still standing up has no session either way, and answering "signed out" is the
+   * truth rather than a `500` a reader can do nothing about.
+   */
+  get hydrated() {
+    return this.values !== null;
   }
 
   /** The resource this application IS, taken from the gate it already declares. */
