@@ -93,7 +93,7 @@ export class XcoreProvider implements OnApplicationBootstrap, OnModuleDestroy {
     },
     routes: { basePath: "/api/auth", afterLogin: "/" },
     realtime: { path: "/_ws/realtime" },
-    live: { enabled: true, staleAfterMs: 5 * 60 * 1000 },
+    live: { enabled: true },
 
     di: {
       // TWO FUNCTIONS, and the HMAC instance never crosses. This library names no
@@ -135,12 +135,23 @@ export class XcoreProvider implements OnApplicationBootstrap, OnModuleDestroy {
 }
 ```
 
-| What it lends              | Receives                 | Returns   | Called when                   |
-| -------------------------- | ------------------------ | --------- | ----------------------------- |
-| `environment.load()`       | nothing                  | every key | at boot, first                |
-| `environment.save(values)` | the keys to write        | nothing   | at pairing, and on a rotation |
-| `onAccount(userId, me)`    | what the provider pushed | nothing   | a permission changes          |
-| `onSignedOut(userId)`      | the account              | nothing   | the session is over           |
+| What it lends               | Receives                 | Returns            | Called when                   |
+| --------------------------- | ------------------------ | ------------------ | ----------------------------- |
+| `environment.load()`        | nothing                  | every key          | at boot, first                |
+| `environment.save(values)`  | the keys to write        | nothing            | at pairing, and on a rotation |
+| `onAccount(userId, me)`     | what the provider pushed | nothing            | a permission changes          |
+| `onSignedOut(userId)`       | the account              | nothing            | the session is over           |
+| `errors(refusal, req, res)` | a decided refusal        | nothing, or throws | every refusal                 |
+| `local_accounts`            | -                        | a list             | read only at `enabled: false` |
+
+`errors` is optional and is where a refusal is SPOKEN. The library decides whether and
+why - it is the only thing that talks to the provider - and hands the whole conclusion
+over: the status, the code, the sentence, and the address to send a browser to when
+there is one. Answer however the framework wants, on `res` or by throwing; the throw
+travels untouched. Lend nothing and the library writes the plain answer itself.
+
+`local_accounts` is a DIRECTORY, not a procedure: a list of accounts, and no sign-in
+function to write. See [`enabled`](../README.md#enabled---x-core-answers-or-this-library-stands-in-for-it).
 
 The signing is not written here either: this library holds
 `@naskot/node-hmac-auth-core` as its own dependency and builds the signed transport

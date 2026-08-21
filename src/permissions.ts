@@ -40,8 +40,12 @@ export interface PermissionReader {
  * comes from, which is worth displaying and never worth deciding on.
  */
 export function createPermissionReader(resource: string) {
-  const prefix = `${resource}:`;
-  const permission = (action: string) => `${prefix}${action}`;
+  const prefix = resource ? `${resource}:` : "";
+  // An action that already carries a namespace keeps it: one account holds rights
+  // across the whole ecosystem, so a route genuinely reading `core:access` says so.
+  // And with no resource at all - an application that declares no gate, or one
+  // standing in for the provider - actions are compared exactly as written.
+  const permission = (action: string) => (action.includes(":") ? action : `${prefix}${action}`);
 
   const can = (permissions: SsoPermissions | null | undefined, action: string) => {
     // No list means no decision, and no decision is a refusal: a gate that opens

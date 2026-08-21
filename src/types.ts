@@ -55,6 +55,21 @@ export interface SsoPermissions {
   global: string[];
   isRoot: boolean;
   groups: SsoGroup[];
+  /**
+   * What THIS application demands before an account may be in it at all, in the
+   * same `resource:action` vocabulary as `global`.
+   *
+   * So the door is one comparison and nothing else: `global` contains every entry
+   * here, or the session is over. EMPTY MEANS EVERYBODY, and it is the common
+   * case - an application that declares no requirement, and one that gates itself.
+   *
+   * Answered by the provider on every read, which is the point. This used to be
+   * taken from what the pairing wrote into the application's own store, and a
+   * store is a copy: an operator adding a requirement changed it over there while
+   * every consuming application went on admitting whoever it had admitted the day
+   * it was installed.
+   */
+  portail: string[];
 }
 
 /** The account behind a session, whole. Read live, never stored. */

@@ -48,10 +48,9 @@ const withResolve = (resolve: () => Promise<Resolution>) => {
     config: new SsoConfigService({ http, frontUrl: () => "https://sso.example.com", identity }),
     session: new SsoSessionService({ auth, identity }),
     realtime: null,
-    // On and serving: these tests are about what the guards do with an ACCOUNT.
-    // Withdrawn stands every door aside, and a bridge that is down shuts them all -
-    // two answers that do not vary per route.
-    withdrawn: () => false,
+    // Serving: these tests are about what the guards do with an ACCOUNT. A bridge
+    // that is not serving shuts every one of them, which is one answer that does not
+    // vary per route.
     serving: () => true,
     resolve,
     portalUrl: () => PORTAL,
@@ -96,7 +95,10 @@ describe("the routes", () => {
     await middlewareFor({ me: anAccountRead() }).routes()(stubRequest("GET", "/api/auth/session"), res, vi.fn());
 
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body() ?? "{}")).toEqual({ data: anAccountRead() });
+    // The resource travels with the account: a page cannot work out which one its
+    // application is, and the convention it used to guess from does not exist on an
+    // application that declares no gate.
+    expect(JSON.parse(res.body() ?? "{}")).toEqual({ data: anAccountRead(), resource: "infrastructure" });
   });
 
   it("answers 401 on the session route with no session, rather than redirecting an XHR", async () => {

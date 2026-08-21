@@ -89,7 +89,7 @@ export const xcore = createXcoreBridge({
   },
   routes: { basePath: "/api/auth", afterLogin: "/" },
   realtime: { path: "/_ws/realtime" },
-  live: { enabled: true, staleAfterMs: 5 * 60 * 1000 },
+  live: { enabled: true },
 
   di: {
     // TWO FUNCTIONS, and the HMAC instance never crosses. This library names no
@@ -120,12 +120,23 @@ export const xcore = createXcoreBridge({
 });
 ```
 
-| What it lends              | Receives                 | Returns   | Called when                   |
-| -------------------------- | ------------------------ | --------- | ----------------------------- |
-| `environment.load()`       | nothing                  | every key | at boot, first                |
-| `environment.save(values)` | the keys to write        | nothing   | at pairing, and on a rotation |
-| `onAccount(userId, me)`    | what the provider pushed | nothing   | a permission changes          |
-| `onSignedOut(userId)`      | the account              | nothing   | the session is over           |
+| What it lends               | Receives                 | Returns            | Called when                   |
+| --------------------------- | ------------------------ | ------------------ | ----------------------------- |
+| `environment.load()`        | nothing                  | every key          | at boot, first                |
+| `environment.save(values)`  | the keys to write        | nothing            | at pairing, and on a rotation |
+| `onAccount(userId, me)`     | what the provider pushed | nothing            | a permission changes          |
+| `onSignedOut(userId)`       | the account              | nothing            | the session is over           |
+| `errors(refusal, req, res)` | a decided refusal        | nothing, or throws | every refusal                 |
+| `local_accounts`            | -                        | a list             | read only at `enabled: false` |
+
+`errors` is optional and is where a refusal is SPOKEN. The library decides whether and
+why - it is the only thing that talks to the provider - and hands the whole conclusion
+over: the status, the code, the sentence, and the address to send a browser to when
+there is one. Answer however the framework wants, on `res` or by throwing; the throw
+travels untouched. Lend nothing and the library writes the plain answer itself.
+
+`local_accounts` is a DIRECTORY, not a procedure: a list of accounts, and no sign-in
+function to write. See [`enabled`](../README.md#enabled---x-core-answers-or-this-library-stands-in-for-it).
 
 The signing is not written here either: this library holds
 `@naskot/node-hmac-auth-core` as its own dependency and builds the signed transport
@@ -305,11 +316,13 @@ import { createSsoClient } from "@gestionpratique/node-sso-consumer/client";
 
 const sso = createSsoClient({
   basePath: "/api/auth",
-  // Pushed, not polled: a permission granted or revoked anywhere lands here within
-  // seconds rather than at the next navigation.
+  // Pushed, not polled - and NOTHING here is polled: this client asks for the
+  // session once, a ticket per socket, and a sign-out on a click. Everything else
+  // arrives on the socket, which is what a socket is for.
   onAccount: (me) => render(me),
-  // The IdP session was closed, the account disabled, or its access revoked. The
-  // portal is the only thing that signs a human in, so that is where this goes.
+  // The IdP session was closed, the account disabled, its access revoked, or this
+  // session ended from the portal's sign-ins screen. The portal is the only thing
+  // that signs a human in, so that is where this goes.
   onSignedOut: () => location.assign("https://portal.example.com/"),
   onConnectionChange: (connected) => badge.classList.toggle("live", connected),
 });

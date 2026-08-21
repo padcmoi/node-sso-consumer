@@ -59,6 +59,7 @@ export { createPermissionReader, holds, type PermissionReader } from "./permissi
 export { addressesOf, type ProviderAddresses, type ProviderEndpoint } from "./provider.js";
 
 export { SsoError, isSessionOver, statusOf, type SsoErrorCode } from "./errors.js";
+export type { StandInAccount } from "./session/local-accounts.js";
 
 export { readMe, readSession } from "./parse.js";
 export { seal, unseal } from "./session/seal.js";

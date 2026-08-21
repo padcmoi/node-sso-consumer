@@ -1,5 +1,6 @@
 import { SsoError } from "../errors.js";
-import { clientContextOf, jarOf, pathOf, queryOf, redirect, sendJson } from "./web.js";
+import { asFields } from "../parse.js";
+import { clientContextOf, jarOf, pathOf, queryOf, readJson, redirect, sendJson } from "./web.js";
 import { statusOf, type SsoErrorCode } from "../errors.js";
 import type { SsoRefusal } from "../xcore-bridge.js";
 import type { WebErrorHandler, WebHandler, WebRequest, WebResponse } from "./web.js";
@@ -15,22 +16,6 @@ export interface SsoMiddlewareOptions {
   session: SsoSessionService;
   realtime: SsoRealtimeBridge | null;
   /**
-   * The application turned this library OFF - `enabled: false`.
-   *
-   * A DECISION, and the opposite of a failure. It says: this deployment does not use
-   * the SSO, and what guards it is its own login - a hardcoded account, a table, a
-   * development screen, whatever it had before. So every door STANDS ASIDE: the five
-   * routes pass on, so an application serving its own `/api/auth/*` finds them free,
-   * and the guards call `next` with no account.
-   *
-   * Refusing here would be refusing a reader for a reason that is not theirs, on an
-   * application that never asked this library to guard anything.
-   *
-   * Asked BEFORE `serving`, because the two answer different questions and only one
-   * of them is about a fault.
-   */
-  withdrawn(): boolean;
-  /**
    * Whether this library, WHICH IS ON, can hold a session, asked on every request.
    *
    * A function rather than a value: it is false while a boot is still standing up
@@ -44,8 +29,10 @@ export interface SsoMiddlewareOptions {
    * application with its lock removed, at the exact moment it cannot tell who is
    * knocking.
    *
-   * The DIFFERENCE with `withdrawn` is the whole of it: one is a deployment that
-   * said it does not use the SSO, the other is one that says it does and cannot.
+   * There is no third state and no door that ever stands aside. Off with a directory
+   * lent, this library stands in and serves; off with nothing lent, nobody can ever
+   * sign in and every door shuts. Standing aside was what served protected pages to
+   * anybody at all.
    */
   serving(): boolean;
   /**
@@ -63,6 +50,14 @@ export interface SsoMiddlewareOptions {
    * middleware is built. Captured as a string it would always be the fallback.
    */
   portalUrl(): string;
+  /** Standing in for the provider: the sign-in route answers, and refusals go to `loginPath`. */
+  standingIn?(): boolean;
+  /** Prove a reader against the application's own directory. Null: refused. */
+  signIn?(req: WebRequest, res: WebResponse, credentials: { email: string; password: string }): Promise<SsoMe | null>;
+  /** The application's own sign-in screen. Only used while standing in. */
+  loginPath?: string;
+  /** End the session and answer where the reader goes. The bridge's own. */
+  logout?(req: WebRequest, res: WebResponse): Promise<string>;
   /**
    * How the application says "refused", lent by it. See `di.errors`: the library
    * decides whether and why, the application decides how it is spoken.
@@ -82,6 +77,7 @@ export interface SsoMiddlewareOptions {
  */
 const isMine = (path: string, base: string) =>
   path === `${base}/sso/start` ||
+  path === `${base}/sso/sign-in` ||
   path === `${base}/sso/callback` ||
   path === `${base}/logout` ||
   path === `${base}/session` ||
@@ -140,7 +136,9 @@ export class SsoMiddleware {
    * signed-in application around no account.
    */
   private refuse(req: WebRequest, res: WebResponse, code: SsoErrorCode = "UNAUTHORIZED", message?: string) {
-    const portal = this.options.portalUrl();
+    // Standing in, the way back is this application's own sign-in screen. There is no
+    // portal: that address arrives with a pairing that never happened.
+    const portal = this.options.standingIn?.() ? (this.options.loginPath ?? "/login") : this.options.portalUrl();
     // No portal means never paired: the address arrives WITH the pairing. So there
     // is nowhere to send anybody, no round trip that would help, and the fault is
     // this application's - which is a `500` however it ends up being expressed.
@@ -174,10 +172,6 @@ export class SsoMiddleware {
       const path = pathOf(req);
       const method = (req.method ?? "GET").toUpperCase();
 
-      // Withdrawn: these five paths belong to nothing here, and an application
-      // serving its own `/api/auth/*` must find them free.
-      if (this.options.withdrawn()) return next();
-
       // Anything OUTSIDE the five is passed on untouched, bridge up or down: this
       // handler answers its own routes and nothing else, and what needs an account
       // is marked by the guards below rather than guessed at here.
@@ -196,6 +190,7 @@ export class SsoMiddleware {
         if (method === "POST" && path === `${this.base}/logout`) return await this.logout(req, res);
         if (method === "GET" && path === `${this.base}/session`) return await this.session(req, res);
         if (method === "POST" && path === `${this.base}/realtime-ticket`) return await this.ticket(req, res);
+        if (method === "POST" && path === `${this.base}/sso/sign-in`) return await this.localSignIn(req, res);
       } catch (error) {
         next(error);
         return;
@@ -225,12 +220,6 @@ export class SsoMiddleware {
    * which is a route asserting rights against an account nobody read.
    */
   async account(req: WebRequest, res: WebResponse, ...actions: string[]) {
-    // Withdrawn: there is no SSO session because this deployment does not use the
-    // SSO. `401` and not `500` - nothing is broken, this route simply asked for an
-    // account from a library that was told to hold none, and what signs anybody in
-    // here is the application's own login.
-    if (this.options.withdrawn()) throw new SsoError("UNAUTHORIZED", "No session: this library is withdrawn");
-
     if (!this.options.serving()) {
       throw new SsoError("NOT_CONFIGURED", "This application cannot reach its identity provider");
     }
@@ -248,9 +237,10 @@ export class SsoMiddleware {
    */
   requireSession() {
     const handler: WebHandler = async (req, res, next) => {
-      // Nothing here to require: the application withdrew, and its own login is
-      // what guards this. See `withdrawn`.
-      if (this.options.withdrawn()) return next();
+      // The sign-in screen itself is never guarded, or the refusal sends a reader to
+      // a page that refuses them, which redirects to itself. Standing in only: with
+      // the switch on this path means nothing and is guarded like any other.
+      if (this.options.standingIn?.() && pathOf(req) === (this.options.loginPath ?? "/login")) return next();
 
       // NOTHING is served from behind this guard while the bridge is down. Not a
       // page, not an empty shell, not a `next()` with no account on it.
@@ -299,12 +289,6 @@ export class SsoMiddleware {
    */
   requirePermissions(...actions: string[]) {
     const handler: WebHandler = (req, res, next) => {
-      // Withdrawn: no account was resolved because none was asked for, and refusing
-      // on an empty permission list would make every route of a withdrawn
-      // application answer `403` - this library enforcing a gate it was told not to
-      // hold.
-      if (this.options.withdrawn()) return next();
-
       // Shut, like the session guard above and for the same reason. Reached on its
       // own it would be asserting rights against `req.me` - which nothing filled,
       // because nothing could - and an empty permission list read as "holds
@@ -366,7 +350,38 @@ export class SsoMiddleware {
     return handler;
   }
 
+  /**
+   * Sign a reader in against the application's own directory.
+   *
+   * Answered by this library, POSTed to by a screen the application draws. The split
+   * is deliberate: comparing, sealing and holding the session are the same job in
+   * both modes and belong here, while the screen belongs to the application's design
+   * and its framework - a library cannot render a Nuxt page, and one that shipped its
+   * own form would be a second look nobody chose.
+   *
+   * `401` and nothing else on a refusal. Which of the two halves was wrong is not
+   * said: telling them apart tells whoever is asking which addresses exist here.
+   */
+  private async localSignIn(req: WebRequest, res: WebResponse) {
+    if (!this.options.standingIn?.() || !this.options.signIn) {
+      return sendJson(res, 404, { error: "No local directory" });
+    }
+
+    const body = asFields(await readJson(req));
+    const email = typeof body?.email === "string" ? body.email : "";
+    const password = typeof body?.password === "string" ? body.password : "";
+
+    const me = await this.options.signIn(req, res, { email, password });
+    if (!me) return sendJson(res, 401, { error: "Wrong email or password" });
+
+    sendJson(res, 200, { data: me });
+  }
+
   private start(req: WebRequest, res: WebResponse) {
+    // Standing in, there is no provider to send anybody to and no authorize URL to
+    // build: the way in is this application's own screen.
+    if (this.options.standingIn?.()) return redirect(res, this.options.loginPath ?? "/login");
+
     const url = this.options.session.start(jarOf(req, res), {
       authorizeUrl: (state) => this.options.config.authorizeUrl({ state }),
     });
@@ -385,16 +400,21 @@ export class SsoMiddleware {
     redirect(res, opened ? (this.options.afterLogin ?? "/") : "/?error=sso");
   }
 
+  /**
+   * End the session, and ANSWER where to go rather than redirecting there.
+   *
+   * This route has exactly one caller and it is a script: the browser client POSTs
+   * to it. A `302` written into a `fetch` is a response nothing follows - the cookie
+   * was cleared and the reader stayed on a page that no longer had a session behind
+   * it, until they refreshed by hand.
+   *
+   * So the address comes back as JSON and the client navigates. The work itself -
+   * clearing, telling the provider, dropping what followed the account - is the
+   * bridge's `logout`, which an application can also call from a handler of its own.
+   */
   private async logout(req: WebRequest, res: WebResponse) {
-    const jar = jarOf(req, res);
-    // Read before ending: the socket following this account has to be dropped with
-    // it, or the process keeps a stream open for a session nobody holds.
-    const sealed = this.options.session.read(jar);
-    await this.options.session.end(jar);
-    if (sealed) this.options.forget?.(sealed.userId);
-    // Asymmetric on purpose: this closes THIS application's session and leaves the
-    // reader signed into the SSO and every other app.
-    this.refuse(req, res);
+    const exit = this.options.logout ? await this.options.logout(req, res) : "";
+    sendJson(res, 200, { data: { exit: exit || (this.options.loginPath ?? "/") } });
   }
 
   /**
@@ -404,15 +424,32 @@ export class SsoMiddleware {
    * provider speaks. Nothing sealed travels: the token pair is a password with a
    * month of life, and anything a page can read, anything on that page can take.
    */
+  /**
+   * The account, and WHICH RESOURCE this application is.
+   *
+   * The resource travels because a page needs it and cannot work it out. It used to
+   * be guessed - find the permission ending in `:access`, take what is in front -
+   * which reads correctly for an application that declares a gate and answers
+   * NOTHING for one that does not. A screen then showed "0 rights" to a reader
+   * holding two, with no way to tell that from actually holding none.
+   *
+   * It is one string the server already knows, so it is answered instead of being
+   * reconstructed from a convention every application would copy differently.
+   */
   private async session(req: WebRequest, res: WebResponse) {
     const resolved = await this.options.resolve(req, res);
     if (!resolved) return sendJson(res, 401, { error: "No session" });
-    sendJson(res, 200, { data: resolved.me });
+    sendJson(res, 200, { data: resolved.me, resource: this.options.auth.permissions.resource });
   }
 
   /** What the page dials the socket with. Thirty seconds, single use. */
   private async ticket(req: WebRequest, res: WebResponse) {
-    if (!this.options.realtime) return sendJson(res, 404, { error: "No realtime bridge" });
+    // Standing in, there is no stream: no provider holds this session, so nothing
+    // pushes a change to it. Answered as "no bridge" rather than as a refusal - the
+    // reader is signed in perfectly well, there is simply nothing to subscribe to.
+    if (!this.options.realtime || this.options.standingIn?.()) {
+      return sendJson(res, 404, { error: "No realtime bridge" });
+    }
 
     const resolved = await this.options.resolve(req, res);
     if (!resolved) return sendJson(res, 401, { error: "No session" });

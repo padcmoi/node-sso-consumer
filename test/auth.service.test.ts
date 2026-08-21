@@ -90,6 +90,15 @@ describe("resolving who is calling", () => {
     expect(await authFor(provider).resolve({ tokens })).toBeNull();
   });
 
+  it("answers null on a `403`, without rotating: the access was revoked, it did not expire", async () => {
+    const provider = stubProvider().on("GET", ME_PATH, { status: 403 });
+
+    expect(await authFor(provider).resolve({ tokens })).toBeNull();
+    // Rotating would be asking the same question twice: the provider checks the
+    // access on that path too, and would refuse the new pair for the same reason.
+    expect(provider.calls("PUT", SESSION_PATH)).toHaveLength(0);
+  });
+
   it("answers null when a pair just minted is already refused, which is a revocation", async () => {
     const provider = stubProvider()
       .on("GET", ME_PATH, { status: 401 })

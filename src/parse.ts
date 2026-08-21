@@ -85,7 +85,22 @@ const readPermissions = (value: unknown) => {
   if (!Array.isArray(held)) malformed("permissions.global");
 
   const global: string[] = held.map((entry: unknown, index: number) => readString(entry, `permissions.global[${index}]`));
-  return { global, isRoot: fields.isRoot === true, groups: readGroups(fields.groups) };
+
+  // What THIS application requires, as the provider answered it for THIS
+  // application - not a copy kept here, so a requirement added on the console
+  // applies on the next read.
+  //
+  // ABSENT reads as empty, deliberately, and it is the one place in this parser
+  // that forgives: a provider that predates this key demands nothing by saying
+  // nothing, and refusing would shut every door against every x-core not yet
+  // upgraded. `permissions.global` keeps refusing when it is missing, because
+  // there the empty reading is the one that opens a gate.
+  const required = fields.portail;
+  const portail: string[] = Array.isArray(required)
+    ? required.map((entry: unknown, index: number) => readString(entry, `permissions.portail[${index}]`))
+    : [];
+
+  return { global, isRoot: fields.isRoot === true, groups: readGroups(fields.groups), portail };
 };
 
 /**

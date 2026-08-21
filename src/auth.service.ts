@@ -131,9 +131,20 @@ export class SsoAuthService {
     try {
       return { me: await this.readAccount({ accessToken: tokens.accessToken }), tokens, rotated: false };
     } catch (error) {
+      if (!(error instanceof SsoError)) throw error;
+
+      // `403` on the identity read is the provider saying this account may not use
+      // this application at all - its access was revoked. Not a right missing on one
+      // route: the door. So the session is OVER, which is `null`, and the reader is
+      // sent back to the portal rather than shown a `403` on the page they were on.
+      //
+      // Rotating would answer the same thing anyway, since the provider checks the
+      // access there too. Asking twice only delays the sign-out.
+      if (error.code === "FORBIDDEN") return null;
+
       // A refusal is FIRST read as an expiry: the access token is short-lived, and
       // rotating is what tells an expired one apart from a revoked session.
-      if (!(error instanceof SsoError) || error.code !== "UNAUTHORIZED") throw error;
+      if (error.code !== "UNAUTHORIZED") throw error;
     }
 
     let rotated: SsoSession;
@@ -194,12 +205,12 @@ export class SsoAuthService {
   get permissions() {
     if (this.reader) return this.reader;
 
-    const resource = this.options.identity.resource;
-    if (!resource) {
-      throw new SsoError("FORBIDDEN", "This app declares no gate, so it holds no permission vocabulary of its own");
-    }
-
-    this.reader = createPermissionReader(resource);
+    // No gate is not a refusal. An application that declares none - and one standing
+    // in, which has declared nothing to anybody - still checks permissions: its
+    // actions are simply compared as they are written, with no namespace added.
+    // Throwing here answered `403` to a route whose reader held exactly what it
+    // asked for, and named a gate as the cause.
+    this.reader = createPermissionReader(this.options.identity.resource ?? "");
     return this.reader;
   }
 
