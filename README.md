@@ -53,13 +53,33 @@ enabled: NODE_ENV == "production" ? true : false,
 provider: { baseUrl: "https://x-core.gestionpratique.ovh:13001" },
 ```
 
-### `enabled` - on, or withdrawn
+### `enabled` - x-core answers, or this library stands in for it
 
-At `false` this library **withdraws**: no pairing, no declaration, no session, no
-socket. `start()` hands back without doing anything, every guard lets everything
-through, and what signs a reader in is the application's own affair - a hardcoded
-login, an account in a table, whatever it had before. It is a decision rather than a
-fault: it does not throw and says no more than one line in the log.
+At `false` there is no pairing, no declaration and no socket - and **the library still
+authenticates**, against the directory the application lends it under
+`di.local_accounts`. It does not stand aside: the guards hold, `requirePermissions`
+still refuses a right that is missing, and the session it hands back has exactly the
+shape x-core answers, `permissions.portail` included and empty.
+
+There are two states and no third:
+
+| `enabled` | `di.local_accounts` | What happens                                                     |
+| --------- | ------------------- | ---------------------------------------------------------------- |
+| `true`    | ignored             | x-core decides. Unreachable or unpaired: every door shuts, `500` |
+| `false`   | lent                | this library decides, against that list, at `routes.loginPath`   |
+| `false`   | nothing             | nobody can ever sign in, so **every door shuts**                 |
+
+The last row is the one that used to stand aside, and standing aside is exactly what a
+guard must never do: an application nobody had configured served every protected page
+to whoever asked, painted around no account, at the one moment nothing could tell one
+reader from another.
+
+What is lent is a **directory, never a procedure** - a list of accounts, and no sign-in
+function to write. Comparing, sealing the cookie and holding the session are this
+library's work in both states, which is what makes the switch honest: a screen built
+offline reads `me.profile.city` and `can("read:user")` exactly as it will in
+production. The application still draws the sign-in SCREEN, because a library cannot
+render its page, and it posts to `<basePath>/sso/sign-in`.
 
 **It is not a "dev mode", it is a switch**, and the application computes it. The line
 above turns it on in production and off elsewhere because that is the common case: a
@@ -76,8 +96,8 @@ what was true on the machine that built the image rather than what is true at bo
 The line above sits in the application's own build, which knows.
 
 Off by mistake in production it does not fall over: it leaves a production offering
-its fallback login to the internet, cleanly and without a word. That is why it is the
-first key of the object.
+the accounts written in its own source to the internet, or refusing everybody if none
+were lent. That is why it is the first key of the object.
 
 ### `provider` - one x-core, one address
 
@@ -112,12 +132,12 @@ behind it. Presented to another it finds nothing.
 
 Every outcome comes back as a value and is said in one loud line in the log:
 
-| `status`       | What it means                                                    |
-| -------------- | ---------------------------------------------------------------- |
-| `withdrawn`    | `enabled: false`. Nothing was done, and nothing is wrong         |
-| `ready`        | paired and declared: the SSO is serving                          |
-| `not-paired`   | no install token, or one the provider refused - in its own words |
-| `not-declared` | the provider was not told how this application plugs in          |
+| `status`       | What it means                                                        |
+| -------------- | -------------------------------------------------------------------- |
+| `withdrawn`    | `enabled: false`. Nothing was asked of anybody, and nothing is wrong |
+| `ready`        | paired and declared: the SSO is serving                              |
+| `not-paired`   | no install token, or one the provider refused - in its own words     |
+| `not-declared` | the provider was not told how this application plugs in              |
 
 A boot that died because a token was spent, because the broker was not up yet or
 because the provider was still starting would take the whole application with it -
@@ -126,9 +146,12 @@ operator would use to look at the problem. What is wanted instead is an applicat
 that stands up, says what is not working, and is repaired by a value in a
 configuration rather than by a container that will not stay alive.
 
-Until it is paired the guards **stand aside** rather than refuse: there is no cookie
-name to read, no sealing password and nothing to sign as, so refusing a reader would
-be refusing them for a reason that is not theirs.
+Until it is paired, on an application that says it uses the SSO, **every door shuts**.
+There is no cookie name to read, no sealing password and nothing to sign as, so nothing
+can be learned about a reader - and what cannot be identified cannot be served. It used
+to stand aside on the reasoning that refusing a reader for a fault that is not theirs is
+unfair; standing aside served every protected page to whoever asked, on a deployment
+nobody had configured, which is the application with its lock removed.
 
 ## Install
 
@@ -146,7 +169,7 @@ import { hmacInstance } from "./hmac";
 export const xcore = createXcoreBridge({
   // ON, OR WITHDRAWN, and only the application can say it: this library reads no
   // `process.env`, and a bundler would have frozen the value at build time anyway.
-  // At `false` it withdraws entirely and the application's own login guards it.
+  // At `false` this library authenticates against `di.local_accounts` instead.
   enabled: NODE_ENV == "production" ? true : false,
   // ONE x-core, WITH its port: the login window lives on the same names without one
   // and answers 204 to anything, so a mistake here fails silently - which is why the
@@ -216,7 +239,14 @@ const me = await xcore.session(req, res); // null means signed out
 {
   "user": { "id": "90dce9b0-…", "email": "…", "displayName": "…", "avatarUrl": "…", "hasPassword": false },
   "profile": { "gender": "mr", "lastname": "…", "firstname": "…", "city": "…", "locale": "fr-FR" },
-  "permissions": { "global": ["core:access", "infrastructure:access"], "isRoot": false, "groups": [] },
+  "permissions": {
+    "global": ["core:access", "infrastructure:access"],
+    "isRoot": false,
+    "groups": [],
+    // What THIS application requires before anybody may be in it. Empty admits
+    // everybody. See "The door" below.
+    "portail": ["infrastructure:access"],
+  },
 }
 ```
 
@@ -232,14 +262,29 @@ app.get("/api/queues", xcore.middleware.requirePermissions("view-queues"), handl
 app.use(xcore.middleware.errors()); // last, after the routes
 ```
 
-| Situation                           | Answer                                                 |
-| ----------------------------------- | ------------------------------------------------------ |
-| no cookie, or session closed at SSO | `302` to the portal                                    |
-| the gate resource was revoked       | `302` to the portal, on the next call                  |
-| signed in without the action        | `403 {"error":"Missing infrastructure:delete-queues"}` |
-| the provider is unreachable         | `503 {"error":"The identity provider is unavailable"}` |
+| Situation                                  | Answer                                                 |
+| ------------------------------------------ | ------------------------------------------------------ |
+| no cookie, or session closed at SSO        | `302` to the portal                                    |
+| the session was ended from the portal      | `302` to the portal, within a second or two            |
+| what this application requires is not held | `302` to the portal, on the next call                  |
+| signed in without the action               | `403 {"error":"Missing infrastructure:delete-queues"}` |
+| the provider is unreachable                | `503 {"error":"The identity provider is unavailable"}` |
 
 A `403` is never a redirect to a sign-in: the account IS signed in, it simply does not hold the right, and sending it to sign in again loops without changing anything.
+
+## The door
+
+Being signed into the ecosystem is not being a user OF this application. What it requires arrives with every `me`, under `permissions.portail`, in the same `resource:action` vocabulary as `global` - so the whole check is one subset test:
+
+```
+global ⊇ portail   →   admitted
+```
+
+**An empty `portail` requires nothing and admits everybody**, which is the common case. Root passes without an exception anywhere: the provider answers it the whole catalogue in `global`.
+
+What is required is never kept here. It is the console that decides it, per application, and the next `me` says so - so adding a requirement applies to a running deployment with nothing to re-pair and nothing to redeploy. An account that stops holding it is not an account short of a button: it is no longer a user of this application, so the session ends, the cookie is cleared and the reader goes back to the portal.
+
+The provider enforces the same thing on its own side, on every path that opens or keeps a session alive. Both readings come from the same rows, so they cannot disagree.
 
 ## The rights
 
@@ -248,7 +293,7 @@ A `403` is never a redirect to a sign-in: the account IS signed in, it simply do
 | `xcore.actions(req)`                                 | this application's actions the account holds, without the prefix |
 | `xcore.can(req, action)` · `canAll(…)` · `canAny(…)` | a boolean, to hide a button the API would refuse anyway          |
 | `xcore.assert(req, ...actions)`                      | nothing, or throws a `403` naming what is missing                |
-| `xcore.permissions(req)`                             | the three raw keys: `global`, `isRoot`, `groups`                 |
+| `xcore.permissions(req)`                             | the four raw keys: `global`, `isRoot`, `groups`, `portail`       |
 
 Nothing is declared to obtain them: the catalogue belongs to the provider, which recomputes it for the account on every `me`. `can` hides, `assert` refuses - and the server decides, never the browser.
 
@@ -260,11 +305,23 @@ xcore.realtime.attach(server); // on the application's own HTTP server
 
 A WebSocket is not bound by the same-origin policy and the provider wants two server-side credentials, so the page never dials it directly. It asks for a ticket over its authenticated session, dials `wss://<own host>/_ws/realtime?ticket=…`, and the bridge redeems it, signs the upstream handshake and sends the `auth` frame itself. An `auth` frame coming from the page is refused.
 
-Following an account is what makes the reads reactive: a permission granted or revoked anywhere lands within seconds instead of at the next navigation. `live.staleAfterMs` (five minutes by default) is the ceiling past which the session is re-proven anyway.
+Three topics are followed for the whole session, and each answers a different question:
+
+| topic           | says                                                             |
+| --------------- | ---------------------------------------------------------------- |
+| `me-changed`    | the account moved - a right granted or revoked, a profile edited |
+| `me-signed-out` | the SSO session is gone, or this application's access was        |
+| `me-sessions`   | the account's own sign-ins, one of which is this one             |
+
+The third is what catches a session ended from the portal's sign-ins screen. `me-signed-out` cannot report that one: the provider computes it from the IdP session and the account's access, and ending one application's session moves neither. So the caller's own line is watched instead - the provider already marks it `current` - and when it goes, the session is over here.
+
+Following an account SERVER-side pushes the same frames to `di.onAccount` and `di.onSignedOut`, for an application keeping a store of its own. **No guard reads from it.** Every read asks the provider, every time, because anything held is a session the provider may already have ended.
 
 ## The browser half
 
-A page holds no SSO code either. `@gestionpratique/node-sso-consumer/client` reads the session, asks for a ticket, dials this host's socket, reconnects, and tells a session that is over from a connection that dropped:
+A page holds no SSO code either. `@gestionpratique/node-sso-consumer/client` reads the session, asks for a ticket, dials this host's socket, reconnects, and tells a session that is over from a connection that dropped.
+
+**It polls nothing.** Three requests in its whole life: the session at startup, a ticket per socket, and a sign-out when somebody clicks. Everything after that arrives on the socket, which is what a socket is for.
 
 ```ts
 import { createSsoClient } from "@gestionpratique/node-sso-consumer/client";
@@ -306,5 +363,6 @@ npm run build
 - The HMAC runtime is injected whole: this library signs with it and owns no credential of its own.
 - One address is configured, `provider.baseUrl`, and the other three are derived from it. It is required because it is the one whose mistake is silent, which is why the boot probes it before declaring anything to it.
 - The session cookie is sealed AES-256-GCM. The token pair IS the session: no local refresh chain. Changing `session.password` signs everyone out.
-- `dependGlobalRessource` is an array and is sent whether it is empty or not.
+- `dependGlobalRessource` is an array and is sent whether it is empty or not. It records what an application declared at pairing; it is NOT what the door is judged on - `permissions.portail` is, and it arrives with every `me` so a requirement changed on the console applies without re-pairing.
+- The browser half polls nothing, and the server half caches nothing. Every read asks the provider; the socket says what moved.
 - One process holds its realtime tickets in memory and pairs on its own. Several need a shared `realtime.tickets` store, and an election OUTSIDE this library: every worker calls `load()`, the elected one calls `start()` - see [Running several processes](./docs/multi-process.md).

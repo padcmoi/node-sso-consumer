@@ -1,5 +1,6 @@
 import { SsoAuthService } from "./auth.service.js";
 import { SsoError, type SsoErrorCode } from "./errors.js";
+import { findById, meOf, signIn, type StandInAccount } from "./session/local-accounts.js";
 import { SsoConfigService } from "./config.service.js";
 import { clientContextOf, jarOf } from "./http/web.js";
 import { SsoMiddleware } from "./http/middleware.js";
@@ -48,9 +49,54 @@ export interface SsoRefusal {
   redirectTo: string | null;
 }
 
+/**
+ * What an application calls itself while it stands in for the provider.
+ *
+ * Written into the store like everything the pairing writes, so the session code
+ * reads it the same way and does not know the difference. `local` rather than a
+ * borrowed-looking identity, because nothing signs with it: there is no provider to
+ * sign to, and a name that looked like a real clientId would be read as one in a log.
+ */
+const LOCAL_CLIENT_ID = "local";
+
+/**
+ * The cookie a stand-in session is sealed into.
+ *
+ * Its own name, distinct from `sso_<clientId>`: a machine that runs an application
+ * offline and then pairs it holds two cookies that mean different things, and one
+ * opened with the other's password is a reader signed out with no explanation.
+ */
+const LOCAL_COOKIE_NAME = "sso_local";
+
 export interface XcoreInjection {
   hmac: XcoreHmacInjection;
   environment: XcoreEnvironmentStore;
+  /**
+   * The readers this application holds ITSELF, for when the provider is not the one
+   * answering - `enabled: false`.
+   *
+   * A LIST, and nothing more. No sign-in function to write, no password comparison,
+   * no form: the login is this library's work, exactly as it is when the switch is
+   * on. What an application lends is the DIRECTORY, never the procedure - the same
+   * rule as every other key here, which lends a store or an access and never a
+   * decision.
+   *
+   * A `signIn` lent instead would be two logins in the ecosystem, a real one and one
+   * hand-written in each application, and the second always drifts: a comparison
+   * that does not fold the case of an address, a session sealed some other way, a
+   * missing account that throws instead of refusing. What is wanted from this mode is
+   * precisely that it behaves like the other one.
+   *
+   * WHAT THIS LIBRARY DOES WITH IT: it answers the sign-in route, compares, seals the
+   * SAME cookie with the same password it drew and stored, re-reads the account here
+   * on every request - so a right removed from this list applies on the next refresh,
+   * the way a revocation arrives from x-core - and fills the session out to the exact
+   * shape `/sso/me` answers.
+   *
+   * Read ONLY at `enabled: false`. With the switch on, this is never looked at: who
+   * is there is x-core's answer and nothing else can give it.
+   */
+  local_accounts?: StandInAccount[];
   /**
    * How THIS application says "refused", lent to the library.
    *
@@ -181,6 +227,20 @@ export interface XcoreBridgeOptions {
   routes?: {
     basePath?: string;
     afterLogin?: string;
+    /**
+     * The application's OWN sign-in screen, used only while standing in.
+     *
+     * With the switch on there is no such thing: the portal is the one place anybody
+     * signs in, and this library never renders a login page. Standing in there is no
+     * portal, so a reader with no session has to be sent somewhere - and it has to be
+     * a page of THIS application, because the screen belongs to its design and its
+     * framework, not to a library.
+     *
+     * So the split is: this library owns the LOGIN - it compares, it seals, it holds
+     * the session - and the application owns the SCREEN, which posts to
+     * `<basePath>/sso/sign-in`.
+     */
+    loginPath?: string;
   };
 
   realtime?: {
@@ -193,17 +253,21 @@ export interface XcoreBridgeOptions {
   /**
    * Follow every account this application holds a session for, over the socket.
    *
-   * On by default, and it is what makes the reads reactive: a permission granted or
-   * revoked from anywhere lands here within seconds, instead of at the reader's next
-   * navigation. Off, every read asks the provider again - correct, chatty, and late.
+   * A RELAY, and only a relay: what arrives is handed to `di.onAccount` and
+   * `di.onSignedOut` so an application can push it into its own store, empty its own
+   * cache, or fan it out to browsers it holds. NO GUARD EVER READS FROM IT.
    *
-   * `staleAfterMs` is the ceiling on how long a followed account is served without
-   * asking anyway: the socket says what CHANGED, and this is what re-proves the
-   * session is still there when nothing has.
+   * It used to. A followed account was served straight out of this for five minutes
+   * before the provider was asked again, on the reasoning that the socket says what
+   * changed. The reasoning is wrong for one case and it is the case that matters: a
+   * session revoked from the portal closes NOTHING over there - x-core re-checks a
+   * live socket against the IdP session and the account's access, deliberately not
+   * against the consumer session row, because that row is replaced at every rotation.
+   * So the frame never comes, and what this held was a session the provider had
+   * already refused, served for five more minutes.
    */
   live?: {
     enabled?: boolean;
-    staleAfterMs?: number;
   };
 
   di: XcoreInjection;
@@ -217,14 +281,6 @@ export interface XcoreBridgeOptions {
 }
 
 type SsoSessionServiceCookie = NonNullable<ConstructorParameters<typeof SsoSessionService>[0]["cookie"]>;
-
-/**
- * How long a followed account is served without asking the provider anyway.
- *
- * Shorter than the access token's own life, so the pair is still rotated by an
- * ordinary read rather than by an expiry nobody saw coming.
- */
-const DEFAULT_STALE_AFTER_MS = 5 * 60 * 1000;
 
 /**
  * What a boot did, said as a value rather than as an exception.
@@ -283,9 +339,6 @@ export class XcoreBridge {
   readonly realtime: SsoRealtimeBridge;
   /** The accounts followed over the socket, empty when `live` is off. */
   readonly live: SsoLiveAccounts | null;
-
-  /** When each followed account was last proven against the provider. */
-  private readonly provenAt = new Map<string, number>();
 
   /**
    * What the application's store said, read once by `start()` and held after.
@@ -363,12 +416,7 @@ export class XcoreBridge {
             // Called through the options object rather than handed over as a
             // reference, so a listener kept on its own `this` still finds it.
             onAccount: (userId, me) => options.di.onAccount?.(userId, me),
-            onSignedOut: (userId) => {
-              // Proven-at is cleared with the account, or a later session for the
-              // same reader would be served from a stamp nothing stands behind.
-              this.provenAt.delete(userId);
-              options.di.onSignedOut?.(userId);
-            },
+            onSignedOut: (userId) => options.di.onSignedOut?.(userId),
             logger: options.logger,
           });
 
@@ -377,7 +425,12 @@ export class XcoreBridge {
       upstreamUrl: this.provider.realtimeUrl,
       path: options.realtime?.path,
       tickets: options.realtime?.tickets,
-      serving: () => this.serving,
+      // NOT `serving`. Standing in, this library holds real sessions but there is no
+      // provider at the other end of a socket: nothing pushes an account that changed
+      // because nothing over there knows it changed. So the upgrade is left alone,
+      // the ticket route refuses, and a browser stays on plain reads - which is the
+      // honest picture rather than a stream that opens onto nothing.
+      serving: () => this.enabled && this.serving,
       logger: options.logger,
     });
 
@@ -389,38 +442,149 @@ export class XcoreBridge {
       // Withdrawn, or standing up, or unpaired, or the provider unreachable: the
       // guards SHUT. This library is the bridge, and what sits behind a guard needs
       // to know who is asking - so an application that cannot ask serves none of it.
-      // OFF is a decision, not a fault: the guards stand aside and the application's
-      // own login is what holds the door. Everything else is a fault, and shuts.
-      withdrawn: () => !this.enabled,
       serving: () => this.serving,
       // Lent, never assumed: the library decides the refusal, this speaks it in
       // whatever the framework underneath expects.
       errors: options.di.errors ? (refusal, req, res) => options.di.errors?.(refusal, req, res) : undefined,
       resolve: (req, res) => this.sessionOf(req, res),
-      forget: (userId) => {
-        this.live?.forget(userId);
-        this.provenAt.delete(userId);
-      },
+      forget: (userId) => this.live?.forget(userId),
       // Read through, never captured: the provider sends its own portal address at
       // pairing, and what is configured is only what answers before it has.
       portalUrl: () => this.portalUrl,
       basePath: options.routes?.basePath,
       afterLogin: options.routes?.afterLogin,
+      loginPath: options.routes?.loginPath,
+      // Standing in, a refusal cannot go to a portal that does not exist: it goes to
+      // this application's own sign-in screen.
+      standingIn: () => this.standingIn,
+      signIn: (req, res, credentials) => this.signInLocally(req, res, credentials),
+      logout: (req, res) => this.logout(req, res),
       logger: options.logger,
     });
   }
 
   /**
+   * End THIS application's session, and say where the reader goes next.
+   *
+   * On the INSTANCE, beside `session()`, because that is where an application looks
+   * for it: a handler that signs somebody out has a request and a response in hand
+   * and should not have to know which path this library mounts to do it.
+   *
+   * Asymmetric on purpose, and it is the whole shape of this protocol: it closes the
+   * session HERE and leaves the reader signed into the SSO and into every other
+   * application. Signing out of the provider is done at the portal, by them.
+   *
+   * Answers the address to send them to rather than redirecting: the caller knows
+   * whether it is answering a form or a fetch, and a redirect written into a fetch
+   * is a response a browser never follows.
+   */
+  async logout(req: WebRequest, res: WebResponse) {
+    const jar = jarOf(req, res);
+    // Read before ending: whatever follows this account has to be dropped with it,
+    // or the process keeps a stream open for a session nobody holds.
+    const sealed = this.sessions.read(jar);
+
+    // Standing in there is no provider to tell, and nothing to tell it: the session
+    // never existed anywhere but in this cookie. Clearing it IS the sign-out.
+    if (this.standingIn) this.sessions.clear(jar);
+    else await this.sessions.end(jar);
+
+    if (sealed) this.live?.forget(sealed.userId);
+
+    return this.standingIn ? (this.options.routes?.loginPath ?? "/login") : this.portalUrl;
+  }
+
+  /**
+   * The reader behind the cookie, out of this application's own directory.
+   *
+   * No provider is called and none exists to call: the seal is opened, the id in it
+   * is looked up AGAIN in the list, and what comes back is built into the same shape
+   * `/sso/me` answers. An id nobody holds any more - an account deleted from the
+   * source - clears the cookie rather than being tolerated, so the next request is
+   * simply signed out instead of carrying a ghost.
+   *
+   * The tokens are empty strings, and that is honest rather than a placeholder:
+   * there IS no token pair here, because there is no provider holding a session at
+   * the other end. Nothing in this mode has one to spend - the socket does not open
+   * and there is no rotation to make - and a caller reaching for one gets an empty
+   * value rather than a convincing forgery.
+   */
+  private localSessionOf(req: WebRequest, res: WebResponse) {
+    const accounts = this.options.di.local_accounts ?? [];
+    const jar = jarOf(req, res);
+    const sealed = this.sessions.read(jar);
+    if (!sealed) return null;
+
+    const account = findById(accounts, sealed.userId);
+    if (!account) {
+      this.options.logger?.warn?.(`[sso] a local session pointed at ${sealed.userId}, which is no longer in the directory`);
+      this.sessions.clear(jar);
+      return null;
+    }
+
+    return {
+      me: meOf(account, this.identity.resource ?? ""),
+      tokens: { accessToken: "", accessTokenExpiresAt: "", refreshToken: "", refreshTokenExpiresAt: "" },
+      userId: sealed.userId,
+    };
+  }
+
+  /**
+   * Sign a reader in against the lent directory, and seal the SAME cookie the SSO
+   * seals.
+   *
+   * The same cookie name, the same password, the same shape inside: that is what
+   * makes the switch a switch rather than a migration. A session opened here is read
+   * back by exactly the code that reads an SSO one.
+   *
+   * Refuses with `null` and says nothing about which half was wrong. Telling a wrong
+   * address from a wrong password tells whoever is asking which addresses exist.
+   */
+  signInLocally(req: WebRequest, res: WebResponse, credentials: { email: string; password: string }) {
+    if (!this.standingIn) {
+      throw new SsoError("NOT_CONFIGURED", "There is no local directory here: signing in goes through the provider");
+    }
+
+    const account = signIn(this.options.di.local_accounts ?? [], credentials.email, credentials.password);
+    if (!account) return Promise.resolve(null);
+
+    const resolved = meOf(account, this.identity.resource ?? "");
+    this.sessions.write(jarOf(req, res), {
+      userId: resolved.user.id,
+      tokens: { accessToken: "", accessTokenExpiresAt: "", refreshToken: "", refreshTokenExpiresAt: "" },
+    });
+    this.options.logger?.info?.(`[sso] ${resolved.user.email} signed in against this application's own directory`);
+    return Promise.resolve(resolved);
+  }
+
+  /**
+   * STANDING IN: the switch is off and this application lent a directory.
+   *
+   * Not a degraded mode and not a stand-aside. The library holds real sessions, the
+   * guards enforce, a missing right is a `403` - only the answer to "who is this"
+   * comes from a list in the application's own source instead of from x-core.
+   *
+   * Off with NOTHING lent is the one case where there is nothing anybody can do:
+   * no provider to ask and no directory to read, so nobody can ever sign in.
+   */
+  get standingIn() {
+    return !this.enabled && (this.options.di.local_accounts?.length ?? 0) > 0;
+  }
+
+  /**
    * Whether this library is actually holding sessions right now.
    *
-   * Three conditions and they are not the same one: the application turned it on,
-   * the store has been read, and the store says this application has an identity.
-   * Anything less and there is nothing to read a session with - no cookie name, no
-   * sealing password, nothing to sign as - so every door stands aside rather than
-   * refusing a reader for a reason that is not theirs.
+   * Either the switch is on and the pairing is done - the store read, an identity in
+   * it - or it is off and a directory was lent. Both hold sessions, seal the same
+   * cookie and enforce the same way; they differ only in who answers "who is this".
+   *
+   * Anything less and there is nothing to read a session with, and every door shuts:
+   * an application that says it uses the SSO and cannot reach it has no business
+   * serving what sits behind a guard, and one that lent no directory either has
+   * nobody it could ever let in.
    */
   get serving() {
-    return this.enabled && this.identity.hydrated && this.identity.installed;
+    return this.standingIn || (this.enabled && this.identity.hydrated && this.identity.installed);
   }
 
   /** What the last `start()` concluded. */
@@ -453,18 +617,37 @@ export class XcoreBridge {
   /**
    * The same read, keeping the pair and the account id for whoever needs them.
    *
-   * Served from what the socket last pushed when this account is being followed and
-   * was proven recently enough - so a page load costs one round trip and the
-   * navigations behind it cost none, while a permission changed anywhere lands in
-   * seconds. Past the ceiling, or with nothing followed, it asks the provider, which
-   * is also what rotates the pair and re-seals it.
+   * IT ASKS THE PROVIDER, EVERY TIME. There is no held view to answer from and no
+   * ceiling under which one is trusted, because the only thing entitled to say
+   * whether a reader is still a reader is x-core, and the only moment its answer is
+   * true is the moment it gives it.
+   *
+   * It did hold one - a followed account served for five minutes between proofs, on
+   * the reasoning that the socket pushes what changes. A session revoked from the
+   * portal pushes nothing: x-core re-checks a live socket against the IdP session and
+   * the account's access, not against the consumer session row, because that row is
+   * replaced at every rotation. So a reader whose session had been ended kept every
+   * door open for five more minutes, which is exactly the forced access this library
+   * exists to close.
+   *
+   * The socket keeps its job, and it is a real one: it repaints screens the instant a
+   * right moves. It is not, and cannot be, what a door is opened on.
    */
   async sessionOf(req: WebRequest, res: WebResponse) {
-    // WITHDRAWN is not a fault, so it is not an error. `enabled: false` says this
-    // deployment does not use the SSO at all, and the honest answer to "who is
-    // signed in here" is then nobody - which is what `null` means everywhere else
-    // in this library. Its own login is what holds the door.
-    if (!this.enabled) return null;
+    // STANDING IN: the reader is in this application's own directory, and the
+    // account is READ AGAIN here rather than taken from the seal. The seal holds an
+    // id and nothing else, deliberately - a permission copied into a cookie is a
+    // permission that survives being taken away, which is the one thing this whole
+    // library exists not to do. Removing a right from the list therefore applies on
+    // the next request, exactly as a revocation from x-core does.
+    if (this.standingIn) return this.localSessionOf(req, res);
+
+    // OFF, and nothing lent. Nobody can sign in here at all: there is no provider to
+    // ask and no directory to read. It is a misconfiguration rather than a signed-out
+    // reader, so it throws like every other one.
+    if (!this.enabled) {
+      throw new SsoError("NOT_CONFIGURED", "This application has no identity provider and no local accounts: nobody can sign in");
+    }
 
     // ON, and unable to ask. THAT throws rather than answering "no reader", and the
     // difference is the whole point: `null` means nobody is signed in, which a
@@ -476,29 +659,69 @@ export class XcoreBridge {
     // read "not signed in", and an application nobody had configured served the
     // shell of every protected page to anyone who asked.
     if (!this.serving) {
-      throw new SsoError("NOT_CONFIGURED", "This application cannot reach its identity provider: nothing behind a guard is served");
+      throw new SsoError(
+        "NOT_CONFIGURED",
+        "This application cannot reach its identity provider: nothing behind a guard is served"
+      );
     }
 
     const jar = jarOf(req, res);
     const sealed = this.sessions.read(jar);
     if (!sealed) return null;
 
-    const pushed = this.live?.view(sealed.userId) ?? null;
-    if (pushed && this.isProven(sealed.userId)) {
-      return { me: pushed, tokens: sealed.tokens, userId: sealed.userId };
-    }
-
     const resolved = await this.sessions.resolve(jar, clientContextOf(req));
 
     if (!resolved) {
       this.live?.forget(sealed.userId);
-      this.provenAt.delete(sealed.userId);
       return null;
     }
 
-    this.provenAt.set(resolved.userId, Date.now());
+    // Signed in, and not entitled to be HERE. The cookie is cleared rather than
+    // left standing: it opens nothing any more, and a reader carrying one that is
+    // refused on every request would be sent back to the portal by every page
+    // without ever being told the session is over.
+    if (!this.admitted(resolved.me)) {
+      this.options.logger?.warn?.(
+        `[sso] ${resolved.me.user.email} does not hold ${resolved.me.permissions.portail.join(", ")}: the session is over for this application`
+      );
+      this.sessions.clear(jar);
+      this.live?.forget(resolved.userId);
+      return null;
+    }
+
     this.live?.remember(resolved.userId, resolved.me, resolved.tokens.accessToken);
     return resolved;
+  }
+
+  /**
+   * May this account be here AT ALL - which is a different question from what it may
+   * do once it is.
+   *
+   * ONE COMPARISON, between two lists the provider answered in the same breath:
+   * `portail` is what THIS application requires, `global` is what this account
+   * holds, and holding all of the first is the door. Nothing is parsed, split or
+   * namespaced - both speak `resource:action`, which is what makes this a subset
+   * test and not a convention two ends could read differently.
+   *
+   * EMPTY REQUIRES NOTHING and everybody passes. That is the common case and it has
+   * to stay cheap: an application that declares no requirement, and one that gates
+   * itself, both answer an empty list.
+   *
+   * Neither list is kept anywhere. It used to read the requirement out of what the
+   * pairing wrote into this application's own store, which is a copy - so an
+   * operator adding a requirement on the console changed it over there while this
+   * application went on admitting whoever it had admitted the day it was installed.
+   * Now it arrives with every `me`, for this application, and applies at once.
+   *
+   * Root needs no exception: the provider answers the whole catalogue in its
+   * `global`, so the subset holds by construction.
+   */
+  private admitted(me: SsoMe) {
+    const required = me.permissions.portail;
+    if (required.length === 0) return true;
+
+    const held = new Set(me.permissions.global);
+    return required.every((permission) => held.has(permission));
   }
 
   /**
@@ -535,12 +758,6 @@ export class XcoreBridge {
     });
     await client.connect(params.accessToken);
     return client;
-  }
-
-  private isProven(userId: string) {
-    const at = this.provenAt.get(userId);
-    if (at === undefined) return false;
-    return Date.now() - at < (this.options.live?.staleAfterMs ?? DEFAULT_STALE_AFTER_MS);
   }
 
   /**
@@ -612,21 +829,8 @@ export class XcoreBridge {
    * operator looking at it, rather than by a container that will not stay alive.
    */
   async start() {
-    // WITHDRAWN. Not a failure and not a refusal: it is how an application says
-    // "not here", and what it does instead about signing anybody in is its own.
-    if (!this.enabled) {
-      this.options.logger?.info?.(
-        "[sso] withdrawn (`enabled: false`): no pairing, no declaration, no session and no socket. " +
-          "Whatever signs a reader in is this application's own."
-      );
-      return this.conclude({
-        ok: true,
-        status: "withdrawn",
-        paired: false,
-        declared: false,
-        reason: null,
-      } satisfies XcoreStartResult);
-    }
+    // OFF. Which of the two that means depends on whether a directory was lent.
+    if (!this.enabled) return this.conclude(await this.standIn());
 
     try {
       await this.load();
@@ -658,6 +862,67 @@ export class XcoreBridge {
   }
 
   /**
+   * Boot with the switch OFF.
+   *
+   * With a directory lent, this library stands in for the provider: it draws the
+   * cookie password, names the cookie and serves sessions out of that list. No
+   * pairing, no declaration, no broker and no socket - there is nothing on the other
+   * side to do any of it with - but everything a reader touches behaves the same.
+   *
+   * With NOTHING lent, it is a misconfiguration and it says so. Not a stand-aside:
+   * an application in that state has no provider to ask and no directory to read, so
+   * nobody can ever sign in, and pretending otherwise would serve every guarded page
+   * to anybody.
+   */
+  private async standIn() {
+    if (!this.standingIn) {
+      this.options.logger?.error?.(
+        "[sso] NOT SERVING: `enabled` is false and no `di.local_accounts` were lent, so there is no provider to ask " +
+          "and no directory to read. Nothing behind a guard is served. Turn the switch on, or lend a directory."
+      );
+      return {
+        ok: false,
+        status: "not-paired",
+        paired: false,
+        declared: false,
+        reason: "the switch is off and no local accounts were lent",
+      } satisfies XcoreStartResult;
+    }
+
+    try {
+      await this.load();
+      await this.ensureSessionPassword();
+      // The two values the pairing would have brought. Named locally and stored the
+      // same way, so the session code that reads them does not know the difference -
+      // and so a cookie survives a restart, which it would not if these were drawn
+      // fresh each time.
+      const missing: Record<string, unknown> = {};
+      if (typeof this.identity.all[ENV.SSO_CLIENT_ID] !== "string") missing[ENV.SSO_CLIENT_ID] = LOCAL_CLIENT_ID;
+      if (typeof this.identity.all[ENV.SSO_SESSION_COOKIE_NAME] !== "string") {
+        missing[ENV.SSO_SESSION_COOKIE_NAME] = LOCAL_COOKIE_NAME;
+      }
+      if (Object.keys(missing).length) {
+        await this.options.di.environment.save(missing);
+        await this.load();
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        status: "not-paired",
+        paired: false,
+        declared: false,
+        reason: `this application's own store could not be read: ${message(error)}`,
+      } satisfies XcoreStartResult;
+    }
+
+    this.options.logger?.info?.(
+      `[sso] standing in for the provider: ${this.options.di.local_accounts?.length ?? 0} local account(s), ` +
+        "sessions held here, guards enforcing. No pairing, no propagation, no socket."
+    );
+    return { ok: true, status: "ready", paired: false, declared: false, reason: null } satisfies XcoreStartResult;
+  }
+
+  /**
    * Read the store and hold what it said. Idempotent, and safe on every worker.
    *
    * Its own method because a deployment running several processes elects ONE of them
@@ -678,7 +943,6 @@ export class XcoreBridge {
   /** Every socket, for a process shutting down. */
   async close() {
     this.live?.close();
-    this.provenAt.clear();
     // The queue is the bridge's own: it opened it, it lets it go. A process that
     // exits without closing leaves a consumer registered on the broker until the
     // heartbeat times out, and the next boot finds two.

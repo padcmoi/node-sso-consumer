@@ -4,7 +4,7 @@ import { createPermissionReader, holds } from "../src/permissions.js";
 
 const reader = createPermissionReader("infrastructure");
 
-const permissions = (global: string[], isRoot = false) => ({ global, isRoot, groups: [] });
+const permissions = (global: string[], isRoot = false) => ({ global, isRoot, groups: [], portail: [] });
 
 describe("reading what an account may do here", () => {
   it("prefixes an action with the resource this application is", () => {

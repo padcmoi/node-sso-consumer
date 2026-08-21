@@ -48,14 +48,26 @@ export interface SsoBrowserOptions {
   onSignedOut?(): void;
   /** Anything else subscribed to. */
   onFrame?(topic: string, data: unknown): void;
-  /** Beyond the two that are always on. */
+  /** Beyond the three that are always on. */
   topics?: string[];
   /** Told when the stream comes and goes, for a badge saying so. */
   onConnectionChange?(connected: boolean): void;
 }
 
-/** Followed for the whole session, whatever page is showing. */
-const ALWAYS = ["me-changed", "me-signed-out"];
+/**
+ * Followed for the whole session, whatever page is showing.
+ *
+ * THREE, and the third is what makes a revocation land. `me-changed` carries the
+ * account and `me-signed-out` carries the end of it - but the provider computes that
+ * second one from the IdP session and the account's access, and neither moves when
+ * ONE application's session is ended from the sign-ins screen. So the frame never
+ * comes, and the page keeps painting.
+ *
+ * `me-sessions` is the list that screen is drawn from, and the provider already marks
+ * the caller's own line `current` in it. Nothing had to be added anywhere: the topic
+ * exists, the flag exists, and this simply subscribes to it.
+ */
+const ALWAYS = ["me-changed", "me-signed-out", "me-sessions"];
 
 /**
  * The session and its stream, from a page.
@@ -66,12 +78,15 @@ const ALWAYS = ["me-changed", "me-signed-out"];
  */
 export class SsoBrowserClient {
   private socket: WebSocket | null = null;
+  private resourceName = "";
   private reconnectDelay = RECONNECT_BASE_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private lastFrameAt = 0;
   private stopped = false;
   private me: SsoMe | null = null;
+  /** This session has been SEEN in the account's list of sign-ins. See `readOwnSession`. */
+  private enrolled = false;
 
   constructor(private readonly options: SsoBrowserOptions = {}) {}
 
@@ -107,12 +122,30 @@ export class SsoBrowserClient {
     // Read field by field rather than trusted whole, exactly as the server half
     // reads it: a malformed answer becomes a named error here instead of an
     // `undefined` three components later, under a signed-in shell around nothing.
-    this.me = readMe(asFields(await answer.json())?.data);
+    const body = asFields(await answer.json());
+    // Answered by the server rather than worked out here. A page cannot know which
+    // resource its application is, and the convention it used to guess from - the
+    // permission ending in `:access` - simply does not exist on an application that
+    // declares no gate.
+    if (typeof body?.resource === "string") this.resourceName = body.resource;
+    this.me = readMe(body?.data);
     return this.me;
   }
 
-  /** What this application's account may do here, without the prefix. */
-  actions(resource?: string) {
+  /** Which global ACL resource this application is, as the server answered it. */
+  get resource() {
+    return this.resourceName;
+  }
+
+  /**
+   * What this application's account may do here, without the prefix.
+   *
+   * The resource defaults to the one the server named, so a caller passes nothing
+   * and gets the right answer. With no resource at all - an application that
+   * declares no gate, or a library standing in - the permissions ARE the actions and
+   * come back whole rather than filtered down to nothing.
+   */
+  actions(resource = this.resourceName) {
     const held = this.me?.permissions.global ?? [];
     if (!resource) return held;
     const prefix = `${resource}:`;
@@ -131,9 +164,29 @@ export class SsoBrowserClient {
   }
 
   /** Close this application's session. The SSO's own stays open. */
+  /**
+   * Sign out HERE, and go where the server says.
+   *
+   * The navigation is the point and it used to be missing: the route answered a
+   * redirect, `fetch` does not follow one, and what a reader saw was a button that
+   * cleared their cookie and left them looking at a page they no longer had a
+   * session for - signed out, apparently still signed in, until they refreshed.
+   *
+   * Where to go is the server's answer, never a constant here: the portal when this
+   * application is paired, its own sign-in screen when the library is standing in.
+   */
   async logout() {
-    await fetch(`${this.base}/logout`, { method: "POST", credentials: "same-origin", redirect: "manual" });
+    const answer = await fetch(`${this.base}/logout`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { accept: "application/json" },
+    }).catch(() => null);
+
     this.close();
+
+    const data = asFields(asFields(await answer?.json().catch(() => null))?.data);
+    const exit = typeof data?.exit === "string" ? data.exit : "";
+    if (exit) location.assign(exit);
   }
 
   /**
@@ -163,6 +216,20 @@ export class SsoBrowserClient {
     this.socket = null;
   }
 
+  /**
+   * Sign out and leave, from wherever the reason was found.
+   *
+   * One place, because a session that is over has to end the same way whether the
+   * provider closed the socket, pushed the frame, or simply answered `401` to the
+   * next question. Everything is torn down BEFORE the application is told, so a
+   * listener that navigates does not race a reconnection.
+   */
+  private ended() {
+    this.close();
+    this.me = null;
+    this.options.onSignedOut?.();
+  }
+
   send(event: string, data: unknown) {
     // `auth` is refused by the bridge, deliberately: the account behind a socket
     // is decided by the ticket that opened it, never by what this page asks for.
@@ -182,16 +249,29 @@ export class SsoBrowserClient {
     this.send("revoke", { sessionId });
   }
 
+  /**
+   * A ticket, or WHY there is none - and the two reasons are not the same thing.
+   *
+   * `401` is the session: it is over, and the reader has to be told. `404` is the
+   * STREAM: this deployment has none - no bridge attached, or a library standing in
+   * for a provider that is not there to push anything - and the reader is signed in
+   * perfectly well.
+   *
+   * Collapsing them into "no ticket" signed everybody out on a deployment that
+   * simply has no socket, and where the sign-out led back to a page that dialled
+   * again, it did it forever.
+   */
   private async ticket() {
     const answer = await fetch(`${this.base}/realtime-ticket`, {
       method: "POST",
       credentials: "same-origin",
       headers: { accept: "application/json" },
     });
-    if (!answer.ok) return null;
+    if (answer.status === 404) return { ticket: null, streamless: true };
+    if (!answer.ok) return { ticket: null, streamless: false };
 
     const data = asFields(asFields(await answer.json())?.data);
-    return typeof data?.ticket === "string" ? data.ticket : null;
+    return { ticket: typeof data?.ticket === "string" ? data.ticket : null, streamless: false };
   }
 
   private async dial() {
@@ -199,12 +279,20 @@ export class SsoBrowserClient {
 
     // A fresh one every dial, reconnections included: it lives thirty seconds and
     // is spent on arrival, so the one that opened the last socket is long gone.
-    const ticket = await this.ticket();
-    if (!ticket) {
-      // No ticket means no session: the route asks the same question the reads do,
-      // and it just answered no.
+    const { ticket, streamless } = await this.ticket();
+
+    // No stream here at all. Nothing to reconnect to and nobody to sign out: this
+    // client goes quiet and the application keeps reading normally.
+    if (streamless) {
       this.stopped = true;
-      this.options.onSignedOut?.();
+      this.options.onConnectionChange?.(false);
+      return;
+    }
+
+    if (!ticket) {
+      // Refused rather than absent: the route asks the same question the reads do,
+      // and it just answered that this session is over.
+      this.ended();
       return;
     }
 
@@ -229,9 +317,7 @@ export class SsoBrowserClient {
       this.options.onConnectionChange?.(false);
 
       if (FATAL.has(event.code)) {
-        this.stopped = true;
-        this.me = null;
-        this.options.onSignedOut?.();
+        this.ended();
         return;
       }
       // A spent ticket is not a session that is over: dial again, and the next
@@ -260,15 +346,32 @@ export class SsoBrowserClient {
     if (topic === "me-changed") {
       // The frame IS the new value: written straight in, with no re-read behind
       // it, which is the whole point of holding this socket open.
-      this.me = readMe(frame.data);
+      const pushed = readMe(frame.data);
+
+      // Unless what it took away is the door. `<resource>:access` is not one right
+      // among the others: an account that loses it is no longer a user of this
+      // application, so this frame is a sign-out and not a repaint. Written in and
+      // handed on, it would grey out every button and leave the reader sitting on a
+      // page the server has already started refusing.
+      if (!this.admitted(pushed)) return this.ended();
+
+      this.me = pushed;
       this.options.onAccount?.(this.me);
       return;
     }
     if (topic === "me-signed-out" && frame.data === true) {
-      this.stopped = true;
-      this.me = null;
-      this.socket?.close();
-      this.options.onSignedOut?.();
+      this.ended();
+      return;
+    }
+
+    // The caller's own line in its own list of sign-ins. The provider marks it
+    // `current`, and it stops being there the instant that session is ended from
+    // the sign-ins screen - which is the ONE way of ending a session that
+    // `me-signed-out` does not report, because neither the IdP session nor the
+    // account's access has moved.
+    if (topic === "me-sessions") {
+      this.readOwnSession(frame.data);
+      this.options.onFrame?.(topic, frame.data);
       return;
     }
     this.options.onFrame?.(topic, frame.data);
@@ -291,6 +394,60 @@ export class SsoBrowserClient {
   private stopHeartbeat() {
     if (this.heartbeat) clearInterval(this.heartbeat);
     this.heartbeat = null;
+  }
+
+  /**
+   * Whether this session is still in the account's own list of sign-ins.
+   *
+   * LATCHED, and it has to be: `current` is computed from the account, the app and
+   * the IdP session, and a socket opened outside that flow has no line to match, so
+   * "none is mine" would be true from the first frame and sign everybody out. It
+   * means something only once a line HAS been seen and then goes.
+   *
+   * And when it goes, the answer is confirmed rather than acted on. Rotation replaces
+   * the row every fifteen minutes - the old one revoked, a new one issued - so a frame
+   * read in the gap between the two shows no line of ours while the session is
+   * perfectly alive. One read of `/session` settles it, and that read is the one that
+   * rotates and re-seals anyway.
+   *
+   * ONE request, and ONLY on this frame. Nothing here is on a timer: this client polls
+   * NOTHING. The socket says when something ended, which is what a socket is for, and
+   * the one read that follows is the answer to a question the socket already asked.
+   */
+  private readOwnSession(data: unknown) {
+    if (!Array.isArray(data)) return;
+
+    if (data.some((row) => asFields(row)?.current === true)) {
+      this.enrolled = true;
+      return;
+    }
+    if (!this.enrolled) return;
+
+    void this.session().then(
+      (me) => {
+        if (!me || !this.admitted(me)) this.ended();
+      },
+      // The provider is unreachable, which is not a session that is over. Signing a
+      // reader out on a network blink looks exactly like a mass revocation.
+      () => undefined
+    );
+  }
+
+  /**
+   * May this account be here at all: does `global` hold everything `portail` asks
+   * for.
+   *
+   * The same one comparison the server half makes, on the same two lists the
+   * provider answered together - never guessed from the shape of a permission, and
+   * never read from anything this page was configured with. An empty `portail`
+   * requires nothing and admits everybody.
+   */
+  private admitted(me: SsoMe) {
+    const required = me.permissions.portail;
+    if (required.length === 0) return true;
+
+    const held = new Set(me.permissions.global);
+    return required.every((permission) => held.has(permission));
   }
 
   private retry(delay: number) {

@@ -228,14 +228,14 @@ export const stubJar = (initial: Record<string, string> = {}) => {
 export const anAccount = (global: string[] = ["infrastructure:access"], isRoot = false) => ({
   user: { id: "user-1", email: "reader@example.com", displayName: "Reader", avatarUrl: null, hasPassword: false },
   profile: { firstname: "Julien", city: "Fréjus" },
-  permissions: { global, isRoot, groups: [] },
+  permissions: { global, isRoot, groups: [], portail: [] },
 });
 
 export const anAccountRead = (global?: string[], isRoot?: boolean) => {
   const me: SsoMe = {
     user: { id: "user-1", email: "reader@example.com", displayName: "Reader", avatarUrl: null },
     profile: { firstname: "Julien" },
-    permissions: { global: global ?? ["infrastructure:access"], isRoot: isRoot ?? false, groups: [] },
+    permissions: { global: global ?? ["infrastructure:access"], isRoot: isRoot ?? false, groups: [], portail: [] },
   };
   return me;
 };

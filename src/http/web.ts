@@ -17,6 +17,13 @@ export interface WebRequest {
   url?: string;
   headers: Record<string, unknown>;
   socket?: { remoteAddress?: string };
+  /**
+   * Already parsed, when the framework underneath parses. Express with
+   * `express.json()` fills it, Nest fills it, and Nitro has usually consumed the
+   * stream by the time a middleware runs - so this is READ FIRST and the stream is
+   * only a fallback. Reading the stream first would hang under all three.
+   */
+  body?: unknown;
   /** Put there by the session middleware, for the handlers behind it. */
   me?: SsoMe;
   ssoTokens?: SsoTokens;
@@ -113,4 +120,40 @@ export const sendJson = (res: WebResponse, status: number, body: unknown) => {
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
+};
+
+/**
+ * The JSON a request carries, whoever parsed it.
+ *
+ * Two ways in, and the ORDER is what makes this work everywhere. Express, Nest and
+ * Nitro all read the body before a middleware sees the request, so `req.body` is
+ * usually there and the stream is usually already at its end - consuming it first
+ * would wait for data nobody is going to send.
+ *
+ * Falls back to reading the stream for a bare Node server, where nothing parsed
+ * anything. Anything unreadable is `null` rather than a throw: a body that is not
+ * JSON is a caller's mistake, and the route above answers it as a refusal rather
+ * than as a fault of this application.
+ */
+export const readJson = async (req: WebRequest) => {
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body !== "string") return req.body;
+    try {
+      return JSON.parse(req.body) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  const stream = req as WebRequest & AsyncIterable<Buffer | string>;
+  if (typeof stream[Symbol.asyncIterator] !== "function") return null;
+
+  try {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    const raw = Buffer.concat(chunks).toString("utf8").trim();
+    return raw ? (JSON.parse(raw) as unknown) : null;
+  } catch {
+    return null;
+  }
 };

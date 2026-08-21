@@ -1,7 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { ENV } from "../src/environment.js";
 import { createXcoreBridge } from "../src/xcore-bridge.js";
-import { API_BASE, aPairing, paired, readOnlyHmac, stubEnvironment, stubHmac, stubProvider } from "./support.js";
+import { seal } from "../src/session/seal.js";
+import {
+  API_BASE,
+  SESSION_PASSWORD,
+  aPairing,
+  anAccount,
+  paired,
+  readOnlyHmac,
+  stubEnvironment,
+  stubHmac,
+  stubProvider,
+} from "./support.js";
 
 // The credential queue is a broker connection, and a test may not open one. What it
 // stands in for is covered where it belongs: `startPropagation` decides on the nine
@@ -50,8 +61,15 @@ const answering = () =>
     .on("PUT", CONFIG_PATH, { status: 204 })
     .global();
 
-describe("on, or withdrawn", () => {
-  it("does nothing at all when it is off, and does not call that a failure", async () => {
+const LOCAL = [
+  { email: "julien@julien.fr", password: "julien", firstName: "Julien", lastName: "Julien", permissions: ["read:user"] },
+];
+
+describe("off, with a directory or without one", () => {
+  // Off and lending NOTHING is not a stand-aside: there is no provider to ask and no
+  // directory to read, so nobody can ever sign in. Serving what sits behind a guard
+  // in that state would hand every protected page to whoever asked.
+  it("refuses to serve when it is off and nothing was lent", async () => {
     const provider = stubProvider();
     const bridge = createXcoreBridge({
       enabled: false,
@@ -62,15 +80,13 @@ describe("on, or withdrawn", () => {
 
     const result = await bridge.start();
 
-    // No pairing, no declaration, no probe: the store is not even read.
+    // No pairing, no declaration, no probe: nothing is asked of anybody.
     expect(provider.seen).toHaveLength(0);
-    expect(result).toMatchObject({ ok: true, status: "withdrawn", paired: false, declared: false });
+    expect(result).toMatchObject({ ok: false, status: "not-paired", paired: false, declared: false });
+    expect(bridge.serving).toBe(false);
   });
 
-  // What guards a withdrawn application is its own login, so every door stands
-  // aside. Refusing instead would make an application that works perfectly answer
-  // `403` on every route, or loop its readers into a portal it is not paired with.
-  it("lets its guards through when it is off", async () => {
+  it("shuts every door when it is off and nothing was lent", async () => {
     const bridge = createXcoreBridge({
       enabled: false,
       provider: { baseUrl: API_BASE },
@@ -82,13 +98,53 @@ describe("on, or withdrawn", () => {
     const res = { statusCode: 200, getHeader: () => undefined, setHeader: () => undefined, end: () => undefined };
 
     const passed: string[] = [];
-    await bridge.middleware.routes()(req, res, () => passed.push("routes"));
     await bridge.middleware.requireSession()(req, res, () => passed.push("session"));
-    await bridge.middleware.requirePermissions("anything")(req, res, () => passed.push("permissions"));
 
-    expect(passed).toEqual(["routes", "session", "permissions"]);
-    expect(res.statusCode).toBe(200);
-    expect(await bridge.session(req, res)).toBeNull();
+    expect(passed).toEqual([]);
+    // No portal either - that address arrives with a pairing that never happened.
+    expect(res.statusCode).toBe(500);
+  });
+
+  // Off WITH a directory is not a degraded mode: real sessions, real guards, and a
+  // session shaped exactly as the provider answers one.
+  it("stands in for the provider when a directory is lent", async () => {
+    const provider = stubProvider();
+    const bridge = createXcoreBridge({
+      enabled: false,
+      provider: { baseUrl: API_BASE },
+      di: { hmac: stubHmac(provider), environment: stubEnvironment(), local_accounts: LOCAL },
+    });
+
+    const result = await bridge.start();
+
+    expect(result).toMatchObject({ ok: true, status: "ready" });
+    expect(bridge.serving).toBe(true);
+    // Still nothing asked of the provider: there is nothing on the other side.
+    expect(provider.seen).toHaveLength(0);
+  });
+
+  it("signs a local reader in, and answers the shape the provider answers", async () => {
+    const bridge = createXcoreBridge({
+      enabled: false,
+      provider: { baseUrl: API_BASE },
+      di: { hmac: stubHmac(stubProvider()), environment: stubEnvironment(), local_accounts: LOCAL },
+    });
+    await bridge.start();
+
+    const req = { headers: {} };
+    const res = { statusCode: 200, getHeader: () => undefined, setHeader: () => undefined, end: () => undefined };
+
+    const me = await bridge.signInLocally(req, res, { email: "JULIEN@julien.fr", password: "julien" });
+
+    // The address folds its case, the password does not.
+    expect(me?.user.email).toBe("julien@julien.fr");
+    expect(me?.user.displayName).toBe("JULIEN JULIEN");
+    // Every field of the real profile is there, `null` where nothing is known: a
+    // component reading one renders instead of throwing.
+    expect(me?.profile).toMatchObject({ firstname: "Julien", lastname: "Julien", city: null, phone1: null });
+    expect(me?.permissions.isRoot).toBe(false);
+    expect(me?.permissions.groups[0]?.name).toBe("_sso_user_julien@julien.fr");
+    expect(await bridge.signInLocally(req, res, { email: "julien@julien.fr", password: "wrong" })).toBeNull();
   });
 });
 
@@ -333,7 +389,7 @@ describe("the rights, read off what the provider answered", () => {
     me: {
       user: { id: "user-1", email: "reader@example.com", displayName: "Reader", avatarUrl: null },
       profile: {},
-      permissions: { global, isRoot, groups: [] },
+      permissions: { global, isRoot, groups: [], portail: [] },
     },
   });
 
@@ -375,5 +431,151 @@ describe("the rights, read off what the provider answered", () => {
     expect(bridge.can({ headers: {} }, "view-queues")).toBe(false);
     expect(bridge.actions({ headers: {} })).toEqual([]);
     expect(bridge.permissions({ headers: {} })).toBeNull();
+  });
+});
+
+/**
+ * The door: who may be here at all, and for how long an answer to that is worth
+ * anything.
+ *
+ * Both cases here were live faults on a paired application. A session ended from the
+ * portal's sign-ins screen left every page of the consuming app open for five more
+ * minutes, and an account that lost the application's own `access` went on browsing
+ * it - because the bridge answered its guards from what the socket had last pushed
+ * instead of asking, and no signal exists that would have corrected either.
+ */
+describe("the door, asked of the provider and asked every time", () => {
+  const ME_PATH = "/api/v1/sso/me";
+  const SESSION_PATH = "/api/v1/sso/consumer/session";
+
+  /** A request carrying a session this application sealed itself. */
+  const signedIn = () => ({
+    method: "GET",
+    url: "/",
+    headers: {
+      cookie: `sso_oauth_test=${encodeURIComponent(
+        seal(SESSION_PASSWORD, {
+          userId: "user-1",
+          tokens: { accessToken: "access-1", accessTokenExpiresAt: "", refreshToken: "refresh-1", refreshTokenExpiresAt: "" },
+        })
+      )}`,
+    },
+  });
+
+  /** Somewhere for a cleared cookie to land, on the shape the library writes to. */
+  const collecting = () => {
+    const headers = new Map<string, number | string | string[]>();
+    return {
+      statusCode: 200,
+      getHeader: (name: string) => headers.get(name),
+      setHeader: (name: string, value: number | string | string[]) => headers.set(name, value),
+      end: () => undefined,
+      cookies: () => {
+        const held = headers.get("Set-Cookie");
+        return Array.isArray(held) ? held : [];
+      },
+    };
+  };
+
+  const loaded = async (provider: ReturnType<typeof stubProvider>) => {
+    const bridge = bridgeFor(provider);
+    await bridge.load();
+    return bridge;
+  };
+
+  /** An account, and what the provider says THIS application requires of it. */
+  const requiring = (portail: string[], global: string[], isRoot = false) => ({
+    ...anAccount(global, isRoot),
+    permissions: { ...anAccount(global, isRoot).permissions, portail },
+  });
+
+  it("asks the provider on every read: nothing is answered from what was pushed before", async () => {
+    // Three answers queued for three reads, and it is the assertion: an answer left
+    // unconsumed would be a read this bridge served on its own word.
+    const provider = stubProvider()
+      .on("GET", ME_PATH, { body: { data: anAccount() } })
+      .on("GET", ME_PATH, { body: { data: anAccount() } })
+      .on("GET", ME_PATH, { body: { data: anAccount() } })
+      .global();
+    const bridge = await loaded(provider);
+
+    await bridge.sessionOf(signedIn(), collecting());
+    await bridge.sessionOf(signedIn(), collecting());
+    await bridge.sessionOf(signedIn(), collecting());
+
+    // Three reads, three questions. A held view answering any of them is a session
+    // the provider may already have ended, served on this application's own word.
+    expect(provider.calls("GET", ME_PATH)).toHaveLength(3);
+  });
+
+  it("ends the session of an account that does not hold what this application requires", async () => {
+    // Signed in, answered for, holding rights - just not the one this application
+    // demands. `portail` is the provider's own answer for THIS application, so the
+    // whole door is: does `global` contain all of it.
+    const provider = stubProvider()
+      .on("GET", ME_PATH, { body: { data: requiring(["factures_edl:access"], ["infrastructure:view-queues"]) } })
+      .global();
+    const bridge = await loaded(provider);
+    const res = collecting();
+
+    expect(await bridge.sessionOf(signedIn(), res)).toBeNull();
+    // Cleared, not merely refused: a cookie that opens nothing is a reader sent to
+    // the portal by every page without ever being told the session is over.
+    expect(res.cookies().some((cookie) => cookie.startsWith("sso_oauth_test=;"))).toBe(true);
+  });
+
+  it("admits an account holding every entry, and refuses one short of a single entry", async () => {
+    const both = ["edl:access", "factures_edl:access"];
+    const provider = stubProvider()
+      .on("GET", ME_PATH, { body: { data: requiring(both, [...both, "core:access"]) } })
+      .on("GET", ME_PATH, { body: { data: requiring(both, ["edl:access", "core:access"]) } })
+      .global();
+    const bridge = await loaded(provider);
+
+    // ALL of them, never any of them: an application asking for two rights is
+    // asking for two, and holding one is not being let in.
+    expect(await bridge.sessionOf(signedIn(), collecting())).not.toBeNull();
+    expect(await bridge.sessionOf(signedIn(), collecting())).toBeNull();
+  });
+
+  it("lets root through, on the catalogue the provider answers it", async () => {
+    // No exception anywhere: root is answered the whole catalogue in `global`, so
+    // the subset holds by construction on both ends of the wire.
+    const provider = stubProvider()
+      .on("GET", ME_PATH, { body: { data: requiring(["factures_edl:access"], ["factures_edl:access"], true) } })
+      .global();
+
+    expect(await (await loaded(provider)).sessionOf(signedIn(), collecting())).not.toBeNull();
+  });
+
+  it("opens the door for everybody when this application requires nothing", async () => {
+    const provider = stubProvider()
+      .on("GET", ME_PATH, { body: { data: requiring([], []) } })
+      .global();
+
+    // An empty `portail` is the common case - an application that declares no
+    // requirement, and one that gates itself. Refusing here would shut out every
+    // account of every application in the ecosystem.
+    expect(await (await loaded(provider)).sessionOf(signedIn(), collecting())).not.toBeNull();
+  });
+
+  it("requires nothing of a provider too old to answer `portail` at all", async () => {
+    const account = anAccount(["infrastructure:view-queues"]);
+    const provider = stubProvider()
+      .on("GET", ME_PATH, { body: { data: account } })
+      .global();
+
+    // Absent reads as empty, and only here. A provider that predates the key demands
+    // nothing by saying nothing; refusing would shut every door against every x-core
+    // not yet upgraded.
+    expect(await (await loaded(provider)).sessionOf(signedIn(), collecting())).not.toBeNull();
+  });
+
+  it("sends a reader whose session was ended at the portal away on the very next read", async () => {
+    // What a revocation looks like from here: the pair is refused, and the rotation
+    // meant to tell an expiry apart from it is refused too.
+    const provider = stubProvider().on("GET", ME_PATH, { status: 401 }).on("PUT", SESSION_PATH, { status: 401 }).global();
+
+    expect(await (await loaded(provider)).sessionOf(signedIn(), collecting())).toBeNull();
   });
 });

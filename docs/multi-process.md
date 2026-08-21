@@ -53,13 +53,13 @@ The same applies to a dev server that restarts on every change - the process hol
 
 `SsoLiveAccounts` holds one socket per account, in the worker that resolved a request for it. Four workers holding a session for the same reader hold four sockets, and each is corrected by the provider within seconds of any change.
 
-There is nothing to share here and nothing to configure. What it costs is one socket per account per worker; what it buys is a read that costs no round trip. An application that would rather not pay it turns the following off, and every read asks the provider again:
+There is nothing to share here and nothing to configure. What it costs is one socket per account per worker; what it buys is `di.onAccount` and `di.onSignedOut` firing within seconds of a change instead of at somebody's next click. An application with nothing to keep in step turns it off:
 
 ```ts
 createXcoreBridge({ /* ... */ live: { enabled: false } });
 ```
 
-The `staleAfterMs` ceiling (five minutes by default) is what re-proves a session when nothing has changed, so a followed account is never served indefinitely from what was pushed.
+Turning it off changes nothing about who gets in. **No guard reads from it, in any worker.** Every read asks the provider, so four workers agree because they all ask the same side, not because they share anything.
 
 ## 4) What needs nothing
 

@@ -220,8 +220,23 @@ export class SsoEnvironment {
   }
 
   /** The resource this application IS, taken from the gate it already declares. */
+  /**
+   * The global ACL resource this application IS, which is the first entry of its
+   * gate.
+   *
+   * Read from the ONE key it lives in rather than through the whole declaration.
+   * Going through the declaration meant demanding `SSO_REDIRECT_URI` to answer a
+   * question that has nothing to do with it - so an application holding a gate but
+   * no callback, and above all one STANDING IN with no pairing at all, threw
+   * `MALFORMED_ANSWER` from the middle of a permission check.
+   *
+   * Undefined when there is no gate, which the caller already handles: an
+   * application that declares none has no vocabulary of its own, and its actions are
+   * compared as they are written.
+   */
   get resource() {
-    return this.declaration.dependGlobalRessource[0];
+    const gate = this.ready[ENV.SSO_DEPEND_GLOBAL_RESSOURCE];
+    return Array.isArray(gate) ? gate.find((value) => typeof value === "string") : undefined;
   }
 
   private get ready() {

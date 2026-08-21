@@ -174,9 +174,12 @@ operator would use to look at the problem. So it stands up, says what is not wor
 and is repaired by a value in a configuration rather than by a container that will not
 stay alive.
 
-Until it is paired the guards **stand aside** rather than refuse: there is no cookie
-name to read, no sealing password and nothing to sign as, so refusing a reader would be
-refusing them for a reason that is not theirs.
+Until it is paired, on an application that says it uses the SSO, **every door shuts**.
+There is no cookie name to read, no sealing password and nothing to sign as, so nothing
+can be learned about a reader - and what cannot be identified cannot be served. It used
+to stand aside on the reasoning that refusing a reader for a fault that is not theirs is
+unfair; standing aside served every protected page to whoever asked, on a deployment
+nobody had configured, which is the application with its lock removed.
 
 The five refusals worth recognising, and they are x-core's own sentences:
 
