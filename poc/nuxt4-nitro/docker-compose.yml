@@ -38,7 +38,10 @@ services:
 
   app:
     build:
-      context: .
+      # The library's root, so the packed tarball under `packages/` is inside the
+      # build context: this POC installs THAT file rather than a published version.
+      context: ../..
+      dockerfile: poc/nuxt4-nitro/Dockerfile
     container_name: poc-nuxt4-nitro-api-app
     restart: unless-stopped
     ports:
@@ -49,9 +52,6 @@ services:
       NUXT_DB_USER: ${DB_USER}
       NUXT_DB_PASSWORD: ${DB_PASSWORD}
       NUXT_DB_NAME: ${DB_NAME}
-      NUXT_ADMIN_EMAIL: ${ADMIN_EMAIL}
-      NUXT_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      NUXT_SESSION_TTL_HOURS: '168'
     depends_on:
       db:
         condition: service_healthy

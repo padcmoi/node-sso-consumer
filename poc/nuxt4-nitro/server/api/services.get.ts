@@ -9,11 +9,15 @@ interface ServiceRow extends RowDataPacket {
   updated_at: Date
 }
 
+/**
+ * This application's OWN data, behind the guard.
+ *
+ * The gate declared to x-core says who may come in at all; whether this reader may
+ * touch this row is this application's business, and always was. Here it asks for
+ * nothing beyond a session, which is the ordinary case.
+ */
 export default defineEventHandler(async (event) => {
-  const session = await readSession(event)
-  if (!session) {
-    throw createError({ statusCode: 401, statusMessage: 'Aucune session' })
-  }
+  await requireSession(event)
 
   const rows = await dbSelect<ServiceRow>(
     'SELECT id, name, kind, status, host, updated_at FROM services ORDER BY id',

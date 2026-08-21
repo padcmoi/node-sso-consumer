@@ -1,12 +1,12 @@
 <script setup lang="ts">
 const route = useRoute()
-const session = useSessionState()
+const { account, connected, logout } = useSso()
 const open = ref(false)
 
 const links = [
   { label: "Vue d'ensemble", to: '/', icon: 'i-lucide-layout-dashboard' },
   { label: 'Services', to: '/services', icon: 'i-lucide-server' },
-  { label: 'Test', to: '/test', icon: 'i-lucide-flask-conical' },
+  { label: 'Session', to: '/test', icon: 'i-lucide-flask-conical' },
 ]
 
 const current = computed(() => links.find((link) => link.to === route.path)?.label ?? 'POC Nuxt 4 + Nitro')
@@ -51,16 +51,17 @@ watch(() => route.path, () => {
       <div class="border-t border-white/5 p-3">
         <div class="flex items-center gap-3 rounded-md px-2 py-2">
           <UAvatar
-            :alt="session?.user.email"
+            :src="account?.user.avatarUrl ?? undefined"
+            :alt="account?.user.displayName"
             size="sm"
             :ui="{ root: 'bg-primary-500/20 text-primary-300' }"
           />
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-medium text-white">
-              {{ session?.user.email }}
+              {{ account?.user.displayName }}
             </p>
-            <p class="truncate font-mono text-xs text-slate-500">
-              {{ session?.session.token.slice(0, 8) }}
+            <p class="truncate text-xs text-slate-500">
+              {{ account?.user.email }}
             </p>
           </div>
           <UButton
@@ -88,9 +89,20 @@ watch(() => route.path, () => {
           aria-label="Ouvrir le menu"
           @click="open = !open"
         />
-        <h1 class="text-sm font-semibold text-primary-400">
+        <h1 class="flex-1 text-sm font-semibold text-primary-400">
           {{ current }}
         </h1>
+
+        <!-- La socket, telle qu'elle est à l'instant : c'est par elle qu'une
+             permission retirée ailleurs arrive ici en quelques secondes. -->
+        <UBadge
+          :color="connected ? 'success' : 'neutral'"
+          variant="subtle"
+          size="sm"
+        >
+          <span class="size-1.5 rounded-full" :class="connected ? 'bg-green-400' : 'bg-slate-500'" />
+          {{ connected ? 'temps réel' : 'hors ligne' }}
+        </UBadge>
       </header>
 
       <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
