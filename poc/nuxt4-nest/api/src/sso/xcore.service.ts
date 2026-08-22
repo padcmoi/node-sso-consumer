@@ -60,14 +60,10 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
         frontUrl: "https://x-sso.gestionpratique.ovh",
       },
 
-      // ── THE ONE VALUE COPIED BY HAND, AND IT IS NOT FILLED IN ─────────────
+      // ── THE ONE VALUE COPIED BY HAND ──────────────────────────────────────
       //
-      // EMPTY ON PURPOSE. This POC is not paired with anything: it boots, says so in
-      // one line, and serves nothing behind the SSO - the state the log calls
-      // `not-paired`. That is a working blank, not a broken one.
-      //
-      // To plug it in: mint a token on x-core's console under « Portails
-      // applicatifs », and at the "L'application" step declare the callback as
+      // Minted on x-core's console under « Portails applicatifs », against the
+      // callback
       //
       //     https://tvx-gp3.gestionpratique.ovh/api/auth/sso/callback
       //
@@ -77,11 +73,13 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
       // container the pairing goes green, the declaration succeeds, and the first
       // sign-in dies on an address nothing can resolve.
       //
-      // Paste the token here and boot. What decides whether the exchange happens is
-      // not its presence but the `INSTALLED` key of `di.environment`: until that
-      // reads true the boot exchanges it, and once it does the boot never looks at it
-      // again. So there is no `install()` to call and nothing to remove afterwards.
-      installToken: "",
+      // It stays here for the life of the application. What decides whether the
+      // exchange happens is not its presence but the `INSTALLED` key of
+      // `di.environment`: until that reads true the boot exchanges it, and once it
+      // does the boot never looks at it again. So there is no `install()` to call and
+      // nothing to remove afterwards - and it opens nothing anyway: x-core deleted
+      // its row the moment it was spent.
+      installToken: "YDjmkwL0fbjxuCcdlRDH74uA3GFSZdd97wDwtU2E4a8",
 
       session: {
         // No password and no name here: the first is minted at the first boot and
