@@ -38,6 +38,15 @@ export default H3.defineEventHandler(async (event) => {
         'x-forwarded-for': H3.getRequestIP(event, { xForwardedFor: true }) ?? '',
         'x-forwarded-proto': H3.getRequestProtocol(event),
         'x-forwarded-host': H3.getRequestHost(event),
+        // PUT BACK BY HAND, because h3 DROPS IT. `accept` sits in h3's own
+        // `ignoredHeaders` beside `accept-encoding` and `host`, so
+        // `getProxyRequestHeaders` never returns it and the API cannot see what the
+        // caller asked for. Every refusal then took the browser branch: an XHR on
+        // `/api/me` was answered with a `302` towards the portal, and a `fetch` that
+        // follows redirects hands the component the portal's HTML where it expected
+        // JSON. Content negotiation is simply impossible behind this relay without
+        // this line.
+        accept: H3.getHeader(event, 'accept') ?? '',
       },
     },
   })
