@@ -14,7 +14,7 @@
     "prod:reset": "docker compose down -v"
   },
   "dependencies": {
-    "@gestionpratique/node-sso-consumer": "file:../../packages/gestionpratique-node-sso-consumer-0.0.0.tgz",
+    "@gestionpratique/node-sso-consumer": "file:../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz",
     "mysql2": "^3.23.3",
     "next": "16.3.2",
     "react": "^19.2.0",
