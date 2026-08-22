@@ -1,0 +1,25 @@
+{
+  "name": "poc-nuxt4-nest-app",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@gestionpratique/node-sso-consumer": "file:../../../packages/gestionpratique-node-sso-consumer-0.0.0.tgz",
+    "@nuxt/ui": "^4.0.0",
+    "nuxt": "^4.1.0",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.20",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.7.2"
+  }
+}

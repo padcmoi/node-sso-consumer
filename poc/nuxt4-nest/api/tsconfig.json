@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    // `nodenext`, the same pair as `manager-infra`'s API, and it is the setting that
+    // found a real defect in this library: its `exports` map named ONE `types` for
+    // both conditions, and since the package is `"type": "module"` TypeScript read
+    // that declaration as ESM - so a CommonJS consumer, which is every NestJS project
+    // in this house, was refused with TS1479 and could not import the library at all.
+    // The `.d.cts` files were built and shipped the whole time, and nothing pointed
+    // at them. Do not drop back to the classic pair to make this compile: the classic
+    // pair ignores `exports`, which hides the fault instead of using the fix.
+    //
+    // This package has no `"type": "module"`, so `nodenext` emits CommonJS - what
+    // Nest runs, and what `require`s the `.cjs` build.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "ES2023",
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "declaration": false,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

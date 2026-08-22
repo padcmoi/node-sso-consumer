@@ -1,0 +1,93 @@
+name: poc-nuxt4-nest
+
+services:
+  db:
+    image: mariadb:11.4
+    container_name: poc-nuxt4-nest-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: poc-nuxt4-nest-pma
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${PMA_PORT}:80'
+    environment:
+      PMA_HOST: db
+      PMA_PORT: '3306'
+      UPLOAD_LIMIT: 64M
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+  # The whole of the SSO, and the only thing that talks to x-core: the pairing, the
+  # session, the rights, the credential queue and the socket to the provider.
+  #
+  # NO PUBLISHED PORT, and that is the arrangement this POC exists to prove. The
+  # only thing that reaches this process is the console's relay, over the network
+  # alias `api`. A port here would be the same API answering beside the relay,
+  # without the `x-forwarded-*` headers it builds its addresses from.
+  api:
+    build:
+      # The library's root, so the packed tarball under `packages/` is inside the
+      # build context: this POC installs THAT file rather than a published version.
+      context: ../..
+      dockerfile: poc/nuxt4-nest/api/Dockerfile
+    container_name: poc-nuxt4-nest-api
+    restart: unless-stopped
+    expose:
+      - '3333'
+    environment:
+      DB_HOST: db
+      DB_PORT: '3306'
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      # Where a browser reaches this POC. The library needs no such value - the
+      # callback URL comes back with the pairing - and this is not passed to it:
+      # it is what the API logs at boot so a wrong pairing is visible before a
+      # reader finds it.
+      PUBLIC_URL: https://tvx-gp3.gestionpratique.ovh
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+  # The console. It holds no backend: an allowlist and two relays, and that is the
+  # whole of `server/`.
+  app:
+    build:
+      context: ../..
+      dockerfile: poc/nuxt4-nest/app/Dockerfile
+    container_name: poc-nuxt4-nest-app
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${APP_PORT}:3000'
+    depends_on:
+      - api
+    networks:
+      - backend
+
+volumes:
+  db_data:
+
+networks:
+  backend:
+    driver: bridge

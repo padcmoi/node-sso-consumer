@@ -1,0 +1,12 @@
+{
+  "name": "poc-nuxt4-nest",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "prod:up": "docker compose up -d --build",
+    "prod:down": "docker compose down",
+    "prod:logs": "docker compose logs -f api",
+    "prod:logs:app": "docker compose logs -f app",
+    "prod:reset": "docker compose down -v"
+  }
+}
