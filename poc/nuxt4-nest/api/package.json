@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@gestionpratique/node-sso-consumer": "file:../../../packages/gestionpratique-node-sso-consumer-0.0.0.tgz",
+    "@gestionpratique/node-sso-consumer": "file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz",
     "@nestjs/common": "^11.1.6",
     "@nestjs/core": "^11.1.6",
     "@nestjs/platform-express": "^11.1.28",

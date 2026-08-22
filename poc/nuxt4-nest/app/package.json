@@ -10,7 +10,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "@gestionpratique/node-sso-consumer": "file:../../../packages/gestionpratique-node-sso-consumer-0.0.0.tgz",
+    "@gestionpratique/node-sso-consumer": "file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz",
     "@nuxt/ui": "^4.0.0",
     "nuxt": "^4.1.0",
     "vue": "^3.5.13",
