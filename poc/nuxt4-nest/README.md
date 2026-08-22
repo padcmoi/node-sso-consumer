@@ -48,10 +48,16 @@ Deux points de vigilance, et ce sont ceux qui cassent silencieusement :
    le navigateur la parcourt, et il ne connaît que `https://tvx-gp3.gestionpratique.ovh`.
    Déclaré contre le conteneur `api`, l'appairage passe au vert, la déclaration
    réussit, et la première connexion meurt sur une adresse que rien ne résout.
-2. **`trust proxy` sur l'API.** Sans lui, chaque session est classée sous l'adresse du
-   conteneur `app` au lieu de celle du lecteur, et le cookie `Secure` est écrit sur ce
-   que le process croit être une connexion en clair - donc jeté par le navigateur. Ce
-   qu'on lit alors, c'est « déconnecté » à chaque navigation, sans une ligne de log.
+2. **Le relais doit ENVOYER `x-forwarded-for` et `accept`.** C'est le relais qui
+   compte, pas l'API : la librairie lit `x-forwarded-for` elle-même dans les en-têtes
+   bruts, donc sans lui chaque session est classée sous l'adresse du conteneur `app`
+   au lieu de celle du lecteur. Et h3 avale `accept`, ce qui rend toute négociation de
+   contenu impossible - voir plus bas.
+
+   `trust proxy` sur l'API est de l'hygiène Express, pas une dépendance : ça corrige
+   `req.ip`, `req.protocol` et `req.secure` pour ce que l'application ajoute, mais la
+   librairie ne lit aucun des trois, et le drapeau `Secure` du cookie vient de la
+   configuration, écrit à la main. Ce README affirmait le contraire.
 
 ## Ce que ce POC a trouvé
 

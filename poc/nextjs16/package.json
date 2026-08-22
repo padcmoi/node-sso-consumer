@@ -1,0 +1,32 @@
+{
+  "name": "poc-nextjs16",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build && pnpm build:server",
+    "build:server": "tsc -p tsconfig.server.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prod:up": "docker compose up -d --build",
+    "prod:down": "docker compose down",
+    "prod:logs": "docker compose logs -f app",
+    "prod:reset": "docker compose down -v"
+  },
+  "dependencies": {
+    "@gestionpratique/node-sso-consumer": "file:../../packages/gestionpratique-node-sso-consumer-0.0.0.tgz",
+    "mysql2": "^3.23.3",
+    "next": "16.3.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/node": "^22.15.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.3"
+  }
+}
