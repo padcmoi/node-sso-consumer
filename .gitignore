@@ -9,5 +9,8 @@ coverage/
 .env.*
 !.env.sample
 !poc/nuxt4-nitro/.env
+!poc/nuxt4-nest/.env
 .DS_Store
 .trash/
+*.tsbuildinfo
+
