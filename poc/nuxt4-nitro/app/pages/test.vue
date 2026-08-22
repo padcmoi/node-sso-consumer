@@ -62,7 +62,7 @@ const groups = computed(() => account.value?.permissions.groups ?? [])
             </tr>
             <tr v-for="group in groups" :key="group.id" class="hover:bg-white/5">
               <td class="px-4 py-3 font-medium text-slate-100">{{ group.name }}</td>
-              <td class="px-4 py-3 text-slate-400">{{ group.description ?? '—' }}</td>
+              <td class="px-4 py-3 text-slate-400">{{ group.description ?? '-' }}</td>
               <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ group.id }}</td>
             </tr>
           </tbody>

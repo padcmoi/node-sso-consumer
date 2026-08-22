@@ -1,0 +1,69 @@
+name: poc-nextjs16
+
+services:
+  db:
+    image: mariadb:11.4
+    container_name: poc-nextjs16-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: poc-nextjs16-pma
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${PMA_PORT}:80'
+    environment:
+      PMA_HOST: db
+      PMA_PORT: '3306'
+      UPLOAD_LIMIT: 64M
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+  # ONE container, and that is the point of this POC: the front, the back, the six
+  # SSO routes and the realtime socket are one Node process on one port. There is no
+  # API beside it and no relay in front of it.
+  app:
+    build:
+      # The library's root, so the packed tarball under `packages/` is inside the
+      # build context: this POC installs THAT file rather than a published version.
+      context: ../..
+      dockerfile: poc/nextjs16/Dockerfile
+    container_name: poc-nextjs16-app
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${APP_PORT}:3000'
+    environment:
+      DB_HOST: db
+      DB_PORT: '3306'
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+volumes:
+  db_data:
+
+networks:
+  backend:
+    driver: bridge

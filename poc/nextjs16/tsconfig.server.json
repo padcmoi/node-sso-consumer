@@ -1,0 +1,26 @@
+{
+  // The custom server, compiled on its own.
+  //
+  // Next compiles `src/app/**` and nothing else: `server.ts` is outside its world
+  // and has to be built here. `nodenext` and not `bundler`, because this output is
+  // RUN by node rather than bundled - it is what reads the library's `exports` map
+  // and picks the CommonJS build, which is what a `require` needs.
+  //
+  // This is also where the two module graphs come from - see the comment at the top
+  // of `src/sso/runtime.ts`, which is the whole reason that file exists.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "rootDir": ".",
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "sourceMap": true,
+    "noEmit": false
+  },
+  "include": ["server.ts", "src/sso/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/app/**"]
+}

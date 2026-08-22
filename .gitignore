@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .nuxt/
+.next/
 .output/
 .data/
 *.log
@@ -10,6 +11,7 @@ coverage/
 !.env.sample
 !poc/nuxt4-nitro/.env
 !poc/nuxt4-nest/.env
+!poc/nextjs16/.env
 .DS_Store
 .trash/
 *.tsbuildinfo

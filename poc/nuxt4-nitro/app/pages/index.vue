@@ -83,7 +83,7 @@ const stats = computed(() => [
         </div>
         <div class="min-w-0">
           <dt class="text-xs uppercase tracking-wide text-slate-500">Ville</dt>
-          <dd class="mt-1 text-sm text-slate-200">{{ account?.profile.city ?? '—' }}</dd>
+          <dd class="mt-1 text-sm text-slate-200">{{ account?.profile.city ?? '-' }}</dd>
         </div>
       </dl>
     </UCard>

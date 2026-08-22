@@ -15,15 +15,20 @@ const PORT = 3333;
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // THE RELAY IS THE ONLY CLIENT, and it forwards what it knows about the browser in
-  // `x-forwarded-for` and `x-forwarded-proto`. Without this line:
+  // Express hygiene behind a relay, and NOTHING THE LIBRARY DEPENDS ON. This line
+  // said the opposite, and it was wrong on both counts it claimed: the library reads
+  // `x-forwarded-for` itself, out of the raw headers, in `clientContextOf` - so a
+  // session is filed under the reader's address whether or not Express is told to
+  // trust anybody; and the session cookie's `Secure` flag comes from the
+  // configuration and is written by hand with `setHeader`, so nothing about it is
+  // decided from the request's protocol.
   //
-  //   every session is filed under the console container's address rather than the
-  //   reader's - one address for all of them;
-  //   and this process believes every request arrived over plain HTTP, so the
-  //   `secure: true` cookie is written on what it takes to be an insecure connection
-  //   and the browser drops it. What one reads then is "signed out" at every
-  //   navigation, with nothing in any log.
+  // What this DOES fix is `req.ip`, `req.protocol` and `req.secure` for whatever
+  // this application adds of its own - a rate limiter, an audit line, an address
+  // check. The library never reads any of the three.
+  //
+  // What actually matters is one hop earlier: the relay has to SEND those headers.
+  // See `app/server/api/[...].ts`, where they are set by hand along with `accept`.
   app.set("trust proxy", true);
 
   const xcore = app.get(XcoreService);

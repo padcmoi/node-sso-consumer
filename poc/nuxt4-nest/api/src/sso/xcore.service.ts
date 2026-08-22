@@ -85,12 +85,16 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
         // No password and no name here: the first is minted at the first boot and
         // kept in `app_settings`, the second is derived from the identity by x-core.
         //
-        // `secure: true`, unlike the `nuxt4-nitro` POC, and it depends on TWO things
-        // being true together: the console is published over HTTPS, and this API
-        // trusts the `x-forwarded-proto` the relay sets - see `main.ts`. Without the
-        // second, this process sees plain HTTP, and a Secure cookie written on what
-        // it believes is an insecure request is a cookie the browser drops. What one
-        // reads then is "signed out" at every navigation, with nothing in any log.
+        // `secure: true`, unlike the `nuxt4-nitro` POC, and it depends on ONE thing:
+        // that the console is published over HTTPS. Nothing else - this line is the
+        // whole decision. The library never asks the request what protocol it
+        // arrived on: it writes the `Secure` attribute from this value with
+        // `setHeader`, by hand. So `trust proxy` on this API has no bearing on it,
+        // whatever `main.ts` used to claim.
+        //
+        // What it costs to get wrong is silent either way: `true` on a console served
+        // in plain HTTP is a cookie the browser drops at every navigation, and
+        // `false` behind HTTPS is a session cookie travelling on any downgrade.
         cookie: { secure: true, sameSite: "lax", maxAgeDays: 30 },
       },
 
