@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@gestionpratique/node-sso-consumer':
-        specifier: file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz
-        version: file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz
+        specifier: file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz
+        version: file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz
       '@nuxt/ui':
         specifier: ^4.0.0
         version: 4.11.0(08076947615161f2431c3b29f12f5ee0)
@@ -548,9 +548,9 @@ packages:
   '@floating-ui/vue@1.1.11':
     resolution: {integrity: sha512-HzHKCNVxnGS35r9fCHBc3+uCnjw9IWIlCPL683cGgM9Kgj2BiAl8x1mS7vtvP6F9S/e/q4O6MApwSHj8hNLGfw==}
 
-  '@gestionpratique/node-sso-consumer@file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz':
-    resolution: {integrity: sha512-X/rAtNqE8PX7ZekPJIs8VA7htuV+XKKwJu69rjlPYPkysfSiJS+t/xUaWBTTJbzAiKr0HDT5fd4NdOXziJiJqg==, tarball: file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz}
-    version: 0.1.0
+  '@gestionpratique/node-sso-consumer@file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz':
+    resolution: {integrity: sha512-MHeeAkCWW6bWndITqkSk9LQEmhoQ/DVQkEP93ZbGLueVbzk8keguxVGINb2UMlq+09slCx17lGQl+dwl/2t98w==, tarball: file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz}
+    version: 0.1.1
     engines: {node: '>=18'}
 
   '@iconify-json/lucide@1.2.125':
@@ -4636,7 +4636,7 @@ snapshots:
       - '@vue/composition-api'
       - vue
 
-  '@gestionpratique/node-sso-consumer@file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz':
+  '@gestionpratique/node-sso-consumer@file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz':
     dependencies:
       '@naskot/node-hmac-auth-core': 1.0.0
       '@naskot/node-hmac-auth-core-propagation': 1.0.0(@naskot/node-hmac-auth-core@1.0.0)

@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## [0.1.1] - 2026-08-23
+
+- Give the POC store a TYPE COLUMN, `created_at`, and a reader that checks one against the other. `app_settings` was `key`/`value`/`updated_at` with a JSON blob in the middle, and a POC is read as a reference: that shape was copied verbatim into a real application, where it had to be undone. The library hands over JavaScript values and takes them back - a gate is an array, a port a number, `INSTALLED` a boolean, the propagation cursor an object - and stored opaquely that shape survives only as long as whoever reads it remembers to parse. Six types are named now, `null` among them because `save` takes `value ?? null` and a key set to nothing has to be tellable from a key never written; a string is stored RAW rather than quoted, so the table stays readable to a human with a SQL client. The declared type is CHECKED at read: a row saying `number` whose value parses to an array is refused by name rather than let through as a shape nothing downstream expects. NOTHING IN THE LIBRARY CHANGES - it never sees the table, and `di.environment` is two functions over whatever an application keeps its shelf in
+
 ## [0.1.0] - 2026-08-22
 
 - Write `package-lock.json` for real. It had never been in step with `package.json`: `@naskot/node-hmac-auth-core-propagation` and its `amqplib` were declared as dependencies and never locked, so `npm ci` refused the install outright. Nothing showed it because the publish workflow only runs on a tag and there had never been one - the first tag of this library is what found it, at the first step of its own release

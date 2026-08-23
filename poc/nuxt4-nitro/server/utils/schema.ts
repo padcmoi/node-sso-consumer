@@ -18,9 +18,35 @@ import type { RowDataPacket } from 'mysql2/promise'
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS app_settings (
     \`key\` VARCHAR(190) NOT NULL PRIMARY KEY,
+    \`type\` ENUM('string','number','boolean','array','object','null') NOT NULL,
     \`value\` LONGTEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    // ── REPRISE DE L'ANCIENNE FORME, UNE FOIS ────────────────────────────────
+  //
+  // `CREATE TABLE IF NOT EXISTS` ne touche pas une table qui existe deja, et les
+  // deploiements appaires avant cette version en portent une sans `type`, avec des
+  // chaines encodees en JSON. Les relire avec le nouveau lecteur donnerait un
+  // `type` vide sur chaque ligne, donc un magasin illisible, donc un `INSTALLED`
+  // absent - et un reappairage avec un jeton deja depense.
+  //
+  // Idempotent des deux cotes : `IF NOT EXISTS` sur les colonnes, et le remplissage
+  // ne touche que les lignes dont le type n'a jamais ete ecrit.
+  `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS \`type\` ENUM('string','number','boolean','array','object','null') NOT NULL DEFAULT 'string' AFTER \`key\``,
+  `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+  `UPDATE app_settings SET \`type\` = CASE
+      WHEN \`value\` = 'null' THEN 'null'
+      WHEN \`value\` IN ('true','false') THEN 'boolean'
+      WHEN \`value\` REGEXP '^-?[0-9]+(\\\\.[0-9]+)?$' THEN 'number'
+      WHEN \`value\` LIKE '[%' THEN 'array'
+      WHEN \`value\` LIKE '{%' THEN 'object'
+      ELSE 'string' END
+    WHERE \`value\` LIKE '"%' OR \`value\` LIKE '[%' OR \`value\` LIKE '{%'
+       OR \`value\` IN ('true','false','null') OR \`value\` REGEXP '^-?[0-9]'`,
+  // Les chaines etaient stockees entre guillemets JSON ; elles sont brutes
+  // desormais, sinon le lecteur rendrait `"oauth-tvx"` guillemets compris.
+  `UPDATE app_settings SET \`value\` = JSON_UNQUOTE(\`value\`) WHERE \`type\` = 'string' AND \`value\` LIKE '"%'`,
   `CREATE TABLE IF NOT EXISTS hmac_credential (
     client_id VARCHAR(190) NOT NULL PRIMARY KEY,
     secret_hash VARCHAR(255) NOT NULL,

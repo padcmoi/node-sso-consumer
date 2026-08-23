@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@gestionpratique/node-sso-consumer':
-        specifier: file:../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz
-        version: file:../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz
+        specifier: file:../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz
+        version: file:../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz
       mysql2:
         specifier: ^3.23.3
         version: 3.23.4(@types/node@22.20.1)
@@ -55,9 +55,9 @@ packages:
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
 
-  '@gestionpratique/node-sso-consumer@file:../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz':
-    resolution: {integrity: sha512-X/rAtNqE8PX7ZekPJIs8VA7htuV+XKKwJu69rjlPYPkysfSiJS+t/xUaWBTTJbzAiKr0HDT5fd4NdOXziJiJqg==, tarball: file:../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz}
-    version: 0.1.0
+  '@gestionpratique/node-sso-consumer@file:../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz':
+    resolution: {integrity: sha512-MHeeAkCWW6bWndITqkSk9LQEmhoQ/DVQkEP93ZbGLueVbzk8keguxVGINb2UMlq+09slCx17lGQl+dwl/2t98w==, tarball: file:../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz}
+    version: 0.1.1
     engines: {node: '>=18'}
 
   '@img/colour@1.1.0':
@@ -691,7 +691,7 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@gestionpratique/node-sso-consumer@file:../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz':
+  '@gestionpratique/node-sso-consumer@file:../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz':
     dependencies:
       '@naskot/node-hmac-auth-core': 1.0.0
       '@naskot/node-hmac-auth-core-propagation': 1.0.0(@naskot/node-hmac-auth-core@1.0.0)

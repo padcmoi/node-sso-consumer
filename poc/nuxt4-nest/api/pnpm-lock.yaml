@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@gestionpratique/node-sso-consumer':
-        specifier: file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz
-        version: file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz
+        specifier: file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz
+        version: file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz
       '@nestjs/common':
         specifier: ^11.1.6
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -91,9 +91,9 @@ packages:
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
     engines: {node: '>=0.1.90'}
 
-  '@gestionpratique/node-sso-consumer@file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz':
-    resolution: {integrity: sha512-X/rAtNqE8PX7ZekPJIs8VA7htuV+XKKwJu69rjlPYPkysfSiJS+t/xUaWBTTJbzAiKr0HDT5fd4NdOXziJiJqg==, tarball: file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz}
-    version: 0.1.0
+  '@gestionpratique/node-sso-consumer@file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz':
+    resolution: {integrity: sha512-MHeeAkCWW6bWndITqkSk9LQEmhoQ/DVQkEP93ZbGLueVbzk8keguxVGINb2UMlq+09slCx17lGQl+dwl/2t98w==, tarball: file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz}
+    version: 0.1.1
     engines: {node: '>=18'}
 
   '@inquirer/ansi@1.0.2':
@@ -1498,7 +1498,7 @@ snapshots:
   '@colors/colors@1.5.0':
     optional: true
 
-  '@gestionpratique/node-sso-consumer@file:../../../packages/gestionpratique-node-sso-consumer-0.1.0.tgz':
+  '@gestionpratique/node-sso-consumer@file:../../../packages/gestionpratique-node-sso-consumer-0.1.1.tgz':
     dependencies:
       '@naskot/node-hmac-auth-core': 1.0.0
       '@naskot/node-hmac-auth-core-propagation': 1.0.0(@naskot/node-hmac-auth-core@1.0.0)

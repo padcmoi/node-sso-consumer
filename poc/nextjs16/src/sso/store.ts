@@ -13,9 +13,35 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS app_settings (
     \`key\` VARCHAR(190) NOT NULL PRIMARY KEY,
+    \`type\` ENUM('string','number','boolean','array','object','null') NOT NULL,
     \`value\` LONGTEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    // ── REPRISE DE L'ANCIENNE FORME, UNE FOIS ────────────────────────────────
+  //
+  // `CREATE TABLE IF NOT EXISTS` ne touche pas une table qui existe deja, et les
+  // deploiements appaires avant cette version en portent une sans `type`, avec des
+  // chaines encodees en JSON. Les relire avec le nouveau lecteur donnerait un
+  // `type` vide sur chaque ligne, donc un magasin illisible, donc un `INSTALLED`
+  // absent - et un reappairage avec un jeton deja depense.
+  //
+  // Idempotent des deux cotes : `IF NOT EXISTS` sur les colonnes, et le remplissage
+  // ne touche que les lignes dont le type n'a jamais ete ecrit.
+  `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS \`type\` ENUM('string','number','boolean','array','object','null') NOT NULL DEFAULT 'string' AFTER \`key\``,
+  `ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+  `UPDATE app_settings SET \`type\` = CASE
+      WHEN \`value\` = 'null' THEN 'null'
+      WHEN \`value\` IN ('true','false') THEN 'boolean'
+      WHEN \`value\` REGEXP '^-?[0-9]+(\\\\.[0-9]+)?$' THEN 'number'
+      WHEN \`value\` LIKE '[%' THEN 'array'
+      WHEN \`value\` LIKE '{%' THEN 'object'
+      ELSE 'string' END
+    WHERE \`value\` LIKE '"%' OR \`value\` LIKE '[%' OR \`value\` LIKE '{%'
+       OR \`value\` IN ('true','false','null') OR \`value\` REGEXP '^-?[0-9]'`,
+  // Les chaines etaient stockees entre guillemets JSON ; elles sont brutes
+  // desormais, sinon le lecteur rendrait `"oauth-tvx"` guillemets compris.
+  `UPDATE app_settings SET \`value\` = JSON_UNQUOTE(\`value\`) WHERE \`type\` = 'string' AND \`value\` LIKE '"%'`,
   `CREATE TABLE IF NOT EXISTS hmac_credential (
     client_id VARCHAR(190) NOT NULL PRIMARY KEY,
     secret_hash VARCHAR(255) NOT NULL,
@@ -25,6 +51,7 @@ const SCHEMA = [
 
 interface SettingRow extends RowDataPacket {
   key: string;
+  type: string;
   value: string;
 }
 
@@ -67,25 +94,22 @@ export const buildSchema = async (pool: Pool) => {
 };
 
 /**
- * This application's key/value shelf. The VALUES ARE JSON, not strings: a gate is a
- * list, a port is a number and `INSTALLED` is a boolean, and flattening them into
- * text would make every reader responsible for unfolding them again.
- *
- * This is what replaces the hand-copied `.env` an installation used to need.
+ * This application's key/value shelf, and what replaces the hand-copied `.env` an
+ * installation used to need. Every value carries its TYPE in its own column - see
+ * `readSetting` below for why.
  */
 export const settingsOf = (pool: Pool) => ({
   async all() {
-    const [rows] = await pool.query<SettingRow[]>("SELECT `key`, `value` FROM app_settings");
+    const [rows] = await pool.query<SettingRow[]>("SELECT `key`, `type`, `value` FROM app_settings");
 
     const held: Record<string, unknown> = {};
     for (const row of rows) {
-      try {
-        held[row.key] = JSON.parse(row.value);
-      } catch {
-        // A row somebody edited by hand. Skipped rather than fatal: a store that
-        // refuses to be read at all would stop a boot over one bad line.
-        console.warn(`[settings] ${row.key} is not JSON and was ignored`);
-      }
+      const value = readSetting(row.type, row.value);
+      // A row somebody edited by hand, or one whose type and value no longer agree.
+      // Skipped rather than fatal: a store that refuses to be read at all would stop
+      // a boot over one bad line, and the library reads an absent key as never set.
+      if (value === UNREADABLE) console.warn(`[settings] ${row.key} is not a readable ${row.type} and was ignored`);
+      else held[row.key] = value;
     }
     return held;
   },
@@ -103,9 +127,11 @@ export const settingsOf = (pool: Pool) => ({
     try {
       await connection.beginTransaction();
       for (const [key, value] of entries) {
+        const { type, text } = writeSetting(value);
         await connection.query(
-          "INSERT INTO app_settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
-          [key, JSON.stringify(value ?? null)]
+          "INSERT INTO app_settings (`key`, `type`, `value`) VALUES (?, ?, ?) " +
+            "ON DUPLICATE KEY UPDATE `type` = VALUES(`type`), `value` = VALUES(`value`)",
+          [key, type, text]
         );
       }
       await connection.commit();
@@ -152,3 +178,68 @@ export const credentialsOf = (pool: Pool) => ({
     await pool.query("DELETE FROM hmac_credential WHERE client_id = ?", [clientId]);
   },
 });
+
+/**
+ * ── WHY `type` IS A COLUMN AND NOT A CONVENTION ────────────────────────────────
+ *
+ * The library hands over JavaScript values and takes JavaScript values back: a gate
+ * is an array, a port is a number, `INSTALLED` is a boolean and the propagation
+ * cursor is an object. Stored as one opaque blob, that shape survives only as long
+ * as whoever reads it remembers to parse - and the first reader who does not is a
+ * boot comparing the string "false" to `false` and finding them different.
+ *
+ * Named in a column, the shape is a fact the table carries rather than a habit the
+ * code has: a `SELECT` is readable by a human, and a row somebody edited by hand is
+ * refused for the right reason instead of entering the environment as nonsense.
+ *
+ * `null` is one of the six because `save` takes `value ?? null`, and a key set to
+ * nothing has to be tellable from a key never written - absent means "never set",
+ * which is what makes an empty gate a declaration rather than an omission.
+ */
+export type AppSettingType = "string" | "number" | "boolean" | "array" | "object" | "null";
+
+/** A row that cannot be read, told apart from a row holding `null`. */
+const UNREADABLE = Symbol("unreadable");
+
+/** The stored pair, back as the value the library handed over. */
+const readSetting = (type: string, value: string) => {
+  if (type === "null") return null;
+  if (type === "string") return value;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return UNREADABLE;
+  }
+
+  // The declared type is CHECKED against what came back rather than trusted: a row
+  // saying `number` whose value parses to an array is corrupt, and letting it
+  // through would put a shape downstream that nothing expects.
+  if (type === "array") return Array.isArray(parsed) ? parsed : UNREADABLE;
+  if (type === "object") return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed : UNREADABLE;
+  if (type === "number") return typeof parsed === "number" ? parsed : UNREADABLE;
+  if (type === "boolean") return typeof parsed === "boolean" ? parsed : UNREADABLE;
+  return UNREADABLE;
+};
+
+const typeOf = (value: unknown): AppSettingType => {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "object") return "object";
+  return "string";
+};
+
+/**
+ * The value, split into the pair the table holds.
+ *
+ * A string is stored RAW rather than JSON-encoded: it is the commonest of the
+ * nineteen, and quoting every one would make the table unreadable to anybody
+ * looking at it with a SQL client - which is half the point of naming the type.
+ */
+const writeSetting = (value: unknown) => {
+  const type = typeOf(value);
+  return { type, text: type === "string" ? String(value) : JSON.stringify(value ?? null) };
+};
