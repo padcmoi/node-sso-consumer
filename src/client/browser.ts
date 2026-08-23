@@ -87,6 +87,8 @@ export class SsoBrowserClient {
   private me: SsoMe | null = null;
   /** This session has been SEEN in the account's list of sign-ins. See `readOwnSession`. */
   private enrolled = false;
+  /** The wake listeners are wired once, on the first `connect()`. */
+  private listening = false;
 
   constructor(private readonly options: SsoBrowserOptions = {}) {}
 
@@ -198,12 +200,47 @@ export class SsoBrowserClient {
    */
   async connect() {
     this.stopped = false;
+    this.listen();
     const me = await this.session();
     if (!me) return null;
 
     this.options.onAccount?.(me);
     await this.dial();
     return me;
+  }
+
+  /**
+   * The three moments a dead connection is noticed, wired ONCE.
+   *
+   * The backoff climbs to thirty seconds, and coming back to a tab is exactly when
+   * a stale page is in front of somebody: waiting it out there is half a minute of
+   * rights that may already have been revoked. `online` is the same event seen from
+   * the network's side.
+   *
+   * This belonged in every application before, and every application forgot it. It
+   * is the client's job: it is the client that knows whether it holds a socket.
+   *
+   * `dial()` returns at once when one is already open, so these are free when
+   * nothing is wrong. Registered once and never removed while the client lives -
+   * `close()` sets `stopped`, which every path checks.
+   */
+  private listen() {
+    if (this.listening || typeof window === "undefined") return;
+    this.listening = true;
+
+    const wake = () => {
+      if (this.stopped || this.socket) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      // Straight through the backoff: a reader who just came back does not wait.
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.reconnectDelay = RECONNECT_BASE_MS;
+      void this.dial();
+    };
+
+    window.addEventListener("online", wake);
+    window.addEventListener("focus", wake);
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", wake);
   }
 
   /** Deliberate: no reconnection follows. */
@@ -383,7 +420,20 @@ export class SsoBrowserClient {
     this.heartbeat = setInterval(() => {
       // A silent socket is reclaimed by most reverse proxies after a minute, and a
       // dead connection does not always raise a close event.
-      if (Date.now() - this.lastFrameAt > SILENCE_LIMIT_MS) {
+      //
+      // ONLY WHILE THE TAB IS VISIBLE, and this is the whole of the bug it fixes. A
+      // hidden tab has its timers throttled to about one firing a minute, so this
+      // interval stops running at twenty-five seconds and starts running at sixty or
+      // more: the check then reads a silence that never happened and hangs up a
+      // perfectly healthy socket - precisely when a pushed change matters most,
+      // since a background tab has nothing else that is going to ask.
+      //
+      // What that produced is an application where the stream only ever worked while
+      // somebody was looking at it: a permission revoked in another window moved
+      // nothing until the tab was focused again, which is the opposite of what
+      // holding a socket open is for.
+      const visible = typeof document === "undefined" || document.visibilityState === "visible";
+      if (visible && Date.now() - this.lastFrameAt > SILENCE_LIMIT_MS) {
         this.socket?.close();
         return;
       }
