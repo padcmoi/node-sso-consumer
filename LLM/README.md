@@ -48,6 +48,9 @@ Violating any of these produces something that appears to work and is wrong.
 9. **Never read `process.env` from inside library configuration you place in a bundled
    file** without knowing it is server-only. The library itself reads no environment
    variable, by design.
+10. **Never copy the permissions into your own table.** The provider recomputes them
+    with every `me`; a stored copy goes stale in silence, and a join against it grants
+    a right that was revoked. `di.accounts.seen` deliberately does not receive them.
 
 ---
 
@@ -153,6 +156,7 @@ else.
 ```ts
 import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 import { getHmacAuthService } from "../services/hmac-auth.service";
+import { accountStore } from "./accounts"; // your upsert into app_sso_accounts, section 5.6
 import { settings } from "./settings";
 
 const ENVS = {
@@ -225,6 +229,15 @@ export const xcore = (runtime[HELD] ??= createXcoreBridge({
         const { http } = await getHmacAuthService();
         await http.clients.delete(clientId);
       },
+    },
+
+    // OPTIONAL, and the one part of `di.accounts` that matters at mode: "sso": a
+    // reader was just seen, write their row. It is what gives this application's own
+    // tables a foreign key target - `invoices.owner` cannot point into the
+    // provider's database. Once per account per process, again after a sign-out,
+    // never awaited. See section 5.6 for the table.
+    accounts: {
+      seen: (account) => accountStore.project(account),
     },
 
     // The store. Two functions over whatever shelf this application keeps.
@@ -411,6 +424,33 @@ mirrors, which is the thing this whole model forbids.
 
 `can()` on the client hides a button. It never refuses a call - the server decides, always.
 
+### 5.6 The projection table - the FK target
+
+Only if this application's rows belong to somebody. One row per account ever seen here,
+written by `di.accounts.seen` and by nothing else:
+
+```sql
+CREATE TABLE app_sso_accounts (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,   -- the FK target: provider UUID, or local id
+  origin ENUM('sso','local') NOT NULL,
+  first_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  last_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  email VARCHAR(320) NULL,               -- CACHE at "sso": display only, never join on it
+  display_name VARCHAR(190) NULL,
+  first_name VARCHAR(190) NULL,
+  last_name VARCHAR(190) NULL,
+  avatar_url VARCHAR(1024) NULL,
+  UNIQUE KEY uq_app_sso_accounts_email (email)
+);
+```
+
+`id` is `VARCHAR(64)`, not `CHAR(36)`: the provider answers a 36-character UUID and a
+local account's id is `local-<hash>` - one column holds both, so `invoices.owner` keeps
+its target when the mode changes. Write `last_seen_at` EXPLICITLY in your upsert:
+MariaDB only fires `ON UPDATE CURRENT_TIMESTAMP` when a value actually changes, and a
+reader signing in with an unchanged name changes nothing - the column would read as
+"seen once" forever. No permission column, per hard rule 10.
+
 ---
 
 ## 6. The store: twenty keys
@@ -476,7 +516,14 @@ this reason. The bridge returns for every upgrade that is not its own.
 protocol it arrived on, and the cookie's `Secure` comes from your configuration. What
 matters is that the relay SENDS `x-forwarded-for`.
 
-**6. Close codes.** `4001`, `4002`, `4003` come from the provider and are fatal. `4402` is
+**6. `middleware.account()` throws, and the throw is yours to map.** It is the entry
+point a handler CALLS rather than sits behind, so it does not go through `di.errors`: it
+throws a typed `SsoError`. Left to travel under Nitro or Nest, a reader missing a right
+gets a `500` instead of a `403`. Catch it and map with the library's own `statusOf(error)`
+
+- never with a second table of statuses, which drifts from the first.
+
+**7. Close codes.** `4001`, `4002`, `4003` come from the provider and are fatal. `4402` is
 this library's own bridge saying the ticket was spent or expired - it is **not** fatal, and
 the client mints another.
 
@@ -491,5 +538,7 @@ the client mints another.
 - [ ] A permission revoked elsewhere reaches the open page within seconds, with no click
 - [ ] No `users`, `sessions` or `permissions` table was created
 - [ ] Assets are not guarded, and your own `/api/` is guarded by its handlers
+- [ ] If `seen` was lent: a row appears in `app_sso_accounts` after the first sign-in,
+      and `last_seen_at` moves on the next one
 
 If any box is unchecked, say which one rather than reporting success.
