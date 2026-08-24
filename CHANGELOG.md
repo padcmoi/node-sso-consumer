@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## [0.1.4] - 2026-08-24
+
+- Ship the printable sheets as JPEG rather than PNG. `0.1.3` published eight A4 renderings at about 630 KB each, which is 5.1 MB of images in a package that is otherwise under half a megabyte - so installing this library to call six routes pulled ten times its own weight in pictures. At quality 88 with no chroma subsampling the text stays crisp at 200 dpi, and the eight come to 3.6 MB
+- Leave the `.puml` beside them untouched, because they are the source: a change is made there and the sheets are re-rendered from it. The rendering command is unchanged apart from its last step
+
 ## [0.1.3] - 2026-08-24
 
 - Change no source file, and no behaviour with it. Everything below is documentation, and `docs` is in `files`, so all of it ships: what was wrong in it was being published as fact
