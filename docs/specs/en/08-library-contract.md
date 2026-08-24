@@ -64,12 +64,15 @@ hmac.deleteCredential?(clientId)      optional
 environment.load()                    everything, in one read, before anything else
 environment.save(values)              upsert what is given, leave the rest alone
 
-accounts?                             ACCESS to the directory, read only at
-                                      mode: "local". Four functions:
-  .findByEmail(email)                 the sign-in read
-  .findById(id)                       the per-request read, from the cookie's id
-  .create?(record)                    optional. Receives an ALREADY HASHED record
-  .update?(id, patch)                 optional
+accounts?                             ACCESS to this application's account table.
+                                      EVERY function is optional:
+  .findByEmail(email)                 "local". The sign-in read
+  .findById(id)                       "local". The per-request read, from the cookie
+  .create?(record)                    "local". Receives an ALREADY HASHED record
+  .update?(id, patch)                 "local"
+  .seen?(account)                     BOTH MODES. A reader was just seen: write their
+                                      row, or refresh it. The FK target an application
+                                      needs, since a key cannot cross two databases
 errors?(refusal, req, res)            how THIS application says "refused"
 onAccount?(userId, me)                what live pushed
 onSignedOut?(userId)                  the session is over

@@ -65,12 +65,16 @@ hmac.deleteCredential?(clientId)      facultatif
 environment.load()                    tout, en une lecture, avant toute chose
 environment.save(values)              upsert ce qui est donné, laisse le reste
 
-accounts?                             l'ACCÈS à l'annuaire, lu seulement à
-                                      mode: "local". Quatre fonctions :
-  .findByEmail(email)                 la lecture de connexion
-  .findById(id)                       la relecture par requête, depuis le cookie
-  .create?(record)                    facultatif. Reçoit un record DÉJÀ HACHÉ
-  .update?(id, patch)                 facultatif
+accounts?                             l'ACCÈS à la table de comptes de cette
+                                      application. TOUT est facultatif :
+  .findByEmail(email)                 "local". La lecture de connexion
+  .findById(id)                       "local". La relecture par requête, du cookie
+  .create?(record)                    "local". Reçoit un record DÉJÀ HACHÉ
+  .update?(id, patch)                 "local"
+  .seen?(account)                     LES DEUX MODES. Un lecteur vient d'être vu :
+                                      écrire sa ligne, ou la rafraîchir. La cible de
+                                      FK dont l'app a besoin, une clé ne traversant
+                                      pas deux bases
 errors?(refusal, req, res)            comment CETTE application dit « refusé »
 onAccount?(userId, me)                ce que live a poussé
 onSignedOut?(userId)                  la session est terminée

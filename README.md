@@ -79,12 +79,22 @@ whatever the application keeps its accounts in:
 
 ```ts
 di.accounts = {
+  // "local" only - reading and writing the directory
   findByEmail(email), // the sign-in read
   findById(id),       // the per-request read, from the id inside the cookie
-  create?(record),    // optional. Receives a record this library has already hashed
-  update?(id, patch), // optional
+  create?(record),    // receives a record this library has already hashed
+  update?(id, patch),
+
+  // BOTH modes - the projection
+  seen?(account),     // a reader was just seen: write their row, or refresh it
 };
 ```
+
+Everything in it is optional, which is not laxity: the first four belong to
+`"local"`, and `seen` belongs to both. An application on x-core that wants a foreign
+key target lends `seen` alone rather than writing two lookups it will never call.
+What `"local"` needs is checked where it is used - without `findByEmail` and
+`findById` the library is not standing in, and every door shuts.
 
 Comparing, hashing, sealing the cookie and holding the session are this library's work
 in both modes, which is what makes the mode honest: a screen built offline reads
@@ -240,6 +250,36 @@ There is no identity here, no callback URL, no gate and no session password. All
 it is entered on x-core's console when the pairing code is minted, brought back by
 the pairing, and kept in the application's own store - so **nothing comes from a
 `.env`**, and one place decides what this application is.
+
+## `seen`, and why a foreign key needs it
+
+An application's own rows belong to somebody. `invoices.owner`, `notes.owner` - and a
+foreign key **cannot cross two databases**, while the account lives in x-core's. So the
+application needs a local row to point at, and the only thing that knows when to write
+one is whatever resolved the session.
+
+```ts
+seen({ id, origin, email, displayName, firstName, lastName, avatarUrl });
+```
+
+`id` is the foreign key target: x-core's UUID in `"sso"`, the local id in `"local"` -
+one column holds both, which is what keeps `invoices.owner` pointing at the same place
+when the mode changes. `origin` says which of the two it was, so nothing downstream has
+to guess.
+
+**The permissions are not passed, deliberately.** x-core recomputes them with every
+`me`, so a copy in a table is a second truth that goes stale without saying so - and
+the day somebody joins against it, a revoked right is still granted by a query.
+
+**It fires once per account per process**, and again after a sign-out. That is the
+whole reason it lives here rather than in an application's own guard: `sessionOf()`
+hands the account back on every request, so wiring the write there would write on every
+asset a page pulls. It is also **not awaited** - a projection that is slow or locked
+must not turn a good session into a refused one - and a failure is logged and forgotten
+so the next read tries again.
+
+It is called AFTER the door, never before: a reader refused for this application has no
+business being written into its table.
 
 ## The seven routes
 

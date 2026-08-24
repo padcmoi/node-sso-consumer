@@ -88,15 +88,29 @@ At `mode: "local"` the application lends `di.accounts` - FOUR ACCESS FUNCTIONS o
 whatever table it keeps its accounts in, never a `login` or a `register`:
 
 ```
-findByEmail(email)   the sign-in read
-findById(id)         the per-request read, from the id inside the sealed cookie
-create?(record)      optional. Receives a record this library has ALREADY hashed
-update?(id, patch)   optional
+findByEmail(email)   "local". The sign-in read
+findById(id)         "local". The per-request read, from the id inside the cookie
+create?(record)      "local". Receives a record this library has ALREADY hashed
+update?(id, patch)   "local"
+seen?(account)       BOTH MODES. See below
 ```
 
 The password never crosses that line, and that is the point: `verifyPassword` reads a
 format and a set of scrypt parameters, and anything writing them elsewhere has to
 reproduce both.
+
+**`seen` is the one that matters at `mode: "sso"`.** An application's own rows belong to
+somebody, and a foreign key cannot cross two databases - the account lives in the
+provider's. So lend `seen` and write a local row for `invoices.owner` to point at:
+
+```
+seen({ id, origin, email, displayName, firstName, lastName, avatarUrl })
+```
+
+`id` is the FK target - the provider's UUID, or the local id. **Never store the
+permissions**: the provider recomputes them with every read, so a copy goes stale in
+silence and a join against it grants a right that was revoked. It fires once per account
+per process and again after a sign-out, not on every request, and it is not awaited.
 
 ### The two entry points
 

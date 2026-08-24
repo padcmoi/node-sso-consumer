@@ -54,6 +54,7 @@ import {
   type StandInAccount,
   type XcoreAccountStore,
   type XcoreBridge,
+  type XcoreSeenAccount,
 } from "@gestionpratique/node-sso-consumer";
 
 import { credentials } from "../hmac";
@@ -107,6 +108,21 @@ const accounts = {
   create: (account: StandInAccount) => accountStore.insert(account),
   /** Change one. A patch with no `passwordHash` leaves that column alone. */
   update: (id: string, patch: Partial<StandInAccount>) => accountStore.patch(id, patch),
+
+  /**
+   * BOTH MODES, and the only one that means anything on x-core.
+   *
+   * An application's own rows belong to somebody, and a foreign key cannot cross two
+   * databases - the account lives in x-core's. So this writes the local row that
+   * `invoices.owner` points at, and refreshes what a screen shows beside it.
+   *
+   * The permissions are NOT passed and must not be stored: x-core recomputes them
+   * with every `me`, and a copy is a second truth that goes stale in silence.
+   *
+   * Called once per account per process, and again after a sign-out. Not awaited -
+   * a slow table must not turn a good session into a refused one.
+   */
+  seen: (account: XcoreSeenAccount) => accountStore.project(account),
 } satisfies XcoreAccountStore;
 
 export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
