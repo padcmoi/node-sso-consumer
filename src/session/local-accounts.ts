@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { verifyPassword } from "./password.js";
+import type { XcoreAccountStore } from "../bridge/contract.js";
 import type { SsoMe, SsoProfile } from "../types.js";
 
 /**
@@ -164,9 +165,8 @@ export function meOf(account: StandInAccount, resource: string) {
  * where a known one takes fifty, and that difference is readable over the network:
  * it turns this route into a way of listing which addresses exist here.
  */
-export async function signIn(accounts: StandInAccount[], email: string, password: string) {
-  const wanted = email.trim().toLowerCase();
-  const account = accounts.find((held) => held.email.toLowerCase() === wanted) ?? null;
+export async function signIn(store: XcoreAccountStore, email: string, password: string) {
+  const account = (await store.findByEmail(email.trim().toLowerCase())) ?? null;
 
   const matched = await verifyPassword(password, account?.passwordHash ?? DECOY);
   return matched ? account : null;
@@ -182,5 +182,18 @@ export async function signIn(accounts: StandInAccount[], email: string, password
  */
 const DECOY = "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
-/** The account a sealed cookie points at, re-read on EVERY request. */
-export const findById = (accounts: StandInAccount[], id: string) => accounts.find((account) => idOf(account) === id) ?? null;
+/**
+ * The account a sealed cookie points at, re-read on EVERY request.
+ *
+ * `idOf` is applied to what comes back rather than trusted: a store that keys its
+ * rows some other way would still answer the record, and the id in the cookie has to
+ * be the id this library composed - otherwise a session opens onto the wrong reader.
+ */
+export async function findById(store: XcoreAccountStore, id: string) {
+  const account = (await store.findById(id)) ?? null;
+  if (!account) return null;
+  return idOf(account) === id ? account : null;
+}
+
+/** The id this library composes for a record, for a store that has to write one. */
+export const accountIdOf = idOf;

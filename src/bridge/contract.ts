@@ -41,35 +41,67 @@ export interface SsoRefusal {
   redirectTo: string | null;
 }
 
+/**
+ * The four ways this library reaches an application's own directory.
+ *
+ * Data access, and nothing above it. The library decides who may in, what a wrong
+ * password answers and what a record has to contain; these say where the rows are.
+ *
+ * Every one may answer a promise or a value, because a directory is a table for one
+ * application and a literal for the next, and neither should have to pretend.
+ *
+ * `create` and `update` are OPTIONAL, and an application that only reads a directory
+ * somebody else seeded lends neither. They exist so that a hash is never produced
+ * outside this library: `xcore.accounts.signUp` hashes and calls `create`, and an
+ * application that wrote the hash itself would have to reproduce the scrypt
+ * parameters - which does not fail loudly the day they drift, it fails as every
+ * password being wrong at once.
+ */
+export interface XcoreAccountStore {
+  /** The sign-in read. Matched case-insensitively: an address is. */
+  findByEmail(email: string): Promise<StandInAccount | null> | StandInAccount | null;
+  /** The per-request read, from the id inside the sealed cookie. */
+  findById(id: string): Promise<StandInAccount | null> | StandInAccount | null;
+  /** Write a record whose `passwordHash` this library has just produced. */
+  create?(account: StandInAccount): Promise<StandInAccount> | StandInAccount;
+  /** Change what one holds - a password, a name, a right. */
+  update?(id: string, patch: Partial<StandInAccount>): Promise<void> | void;
+}
+
 export interface XcoreInjection {
   hmac: XcoreHmacInjection;
   environment: XcoreEnvironmentStore;
   /**
-   * The readers this application holds ITSELF, for when the provider is not the one
-   * answering - `mode: "local"`.
+   * How to REACH the readers this application holds itself, for when the provider is
+   * not the one answering - `mode: "local"`.
    *
-   * A LIST, and nothing more. No sign-in function to write, no password comparison,
-   * no form: the login is this library's work, exactly as it is when the switch is
-   * on. What an application lends is the DIRECTORY, never the procedure - the same
-   * rule as every other key here, which lends a store or an access and never a
-   * decision.
+   * ACCESS FUNCTIONS, never business verbs, and that is the rule the other two
+   * injections already follow: `hmac` is get/set/delete, `environment` is load/save,
+   * and neither is called "rotate the credential" or "install". A `login` or a
+   * `register` lent here would be the DECISION leaving the library - and the decision
+   * is the one thing it must keep, because in this mode it is the only thing that
+   * knows the hash format.
    *
-   * A `signIn` lent instead would be two logins in the ecosystem, a real one and one
-   * hand-written in each application, and the second always drifts: a comparison
-   * that does not fold the case of an address, a session sealed some other way, a
-   * missing account that throws instead of refusing. What is wanted from this mode is
-   * precisely that it behaves like the other one.
+   * It used to be an ARRAY, and that was its ceiling: a directory written as a
+   * literal cannot be added to without a deploy, and a scrypt hash typed by hand into
+   * a source file is no better protected than the clear password it replaced. What
+   * makes the hash mean something is a table, and a table is read through a function.
    *
-   * WHAT THIS LIBRARY DOES WITH IT: it answers the sign-in route, compares, seals the
-   * SAME cookie with the same password it drew and stored, re-reads the account here
-   * on every request - so a right removed from this list applies on the next refresh,
-   * the way a revocation arrives from x-core - and fills the session out to the exact
-   * shape `/sso/me` answers.
+   * WHAT THIS LIBRARY DOES WITH IT: it answers the sign-in route, compares with
+   * `verifyPassword`, seals the SAME cookie with the same password it drew and
+   * stored, re-reads the account through `findById` on EVERY request - so a right
+   * removed from the table applies on the next one, the way a revocation arrives from
+   * x-core - and fills the session out to the exact shape `/sso/me` answers.
    *
    * Read ONLY at `mode: "local"`. In `"sso"` this is never looked at: who is there
    * is x-core's answer and nothing else can give it.
+   *
+   * LENDING IT IS THE DECLARATION that a directory exists. An empty table is a
+   * legitimate state - an application whose first account has not been created yet -
+   * and it refuses every sign-in without pretending to be misconfigured. Lending
+   * nothing at all in `"local"` is the misconfiguration, and every door shuts.
    */
-  local_accounts?: StandInAccount[];
+  accounts?: XcoreAccountStore;
   /**
    * How THIS application says "refused", lent to the library.
    *
@@ -133,7 +165,7 @@ export interface XcoreBridgeOptions {
    * other one.
    *
    * `"sso"`      the provider answers. Pairing, declaration, sessions, socket.
-   * `"local"`    this library answers, out of `di.local_accounts`. No pairing, no
+   * `"local"`    this library answers, out of `di.accounts`. No pairing, no
    *              declaration, no broker and no socket, because there is nothing on
    *              the other side to do any of it with.
    *
@@ -229,6 +261,17 @@ export interface XcoreBridgeOptions {
      * `<basePath>/sso/sign-in`.
      */
     loginPath?: string;
+    /**
+     * Whether `<base>/sso/sign-up` answers at all. OFF unless this says otherwise.
+     *
+     * Opt-in rather than implied by `di.accounts.create`, because an application may
+     * lend that for an administration screen and want nothing open to the internet.
+     * A route that appeared the moment `create` existed would be a public sign-up
+     * nobody asked for, on a deployment whose author never read this line.
+     *
+     * `"local"` only: in `"sso"` there is nothing here to create an account in.
+     */
+    signUp?: boolean;
   };
 
   realtime?: {

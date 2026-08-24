@@ -1,6 +1,8 @@
 import { SsoError } from "../errors.js";
-import { findById, meOf, signIn } from "../session/local-accounts.js";
+import { accountIdOf, findById, meOf, signIn } from "../session/local-accounts.js";
+import { hashPassword } from "../session/password.js";
 import { jarOf } from "../http/web.js";
+import type { StandInAccount } from "../session/local-accounts.js";
 import type { SsoEnvironment } from "../environment.js";
 import type { SsoSessionService } from "../session/session.service.js";
 import type { WebRequest, WebResponse } from "../http/web.js";
@@ -33,17 +35,20 @@ export interface StandInContext {
 }
 
 /**
- * STANDING IN: `mode` is `"local"` and this application lent a directory.
+ * STANDING IN: `mode` is `"local"` and this application lent a way to read its
+ * directory.
  *
  * Not a degraded mode and not a stand-aside. The library holds real sessions, the
  * guards enforce, a missing right is a `403` - only the answer to "who is this"
- * comes from a list in the application's own source instead of from x-core.
+ * comes from the application's own table instead of from x-core.
  *
- * Off with NOTHING lent is the one case where there is nothing anybody can do:
- * no provider to ask and no directory to read, so nobody can ever sign in.
+ * THE ACCESSOR'S PRESENCE decides this, not a row count, and it could not be
+ * otherwise: this is read on every request and synchronously, where counting rows is
+ * a query. It is also the better question - an empty table is an application whose
+ * first account has not been created yet, which refuses every sign-in without being
+ * misconfigured. Lending nothing at all is the misconfiguration.
  */
-export const standingIn = (options: XcoreBridgeOptions) =>
-  options.mode === "local" && (options.di.local_accounts?.length ?? 0) > 0;
+export const standingIn = (options: XcoreBridgeOptions) => options.mode === "local" && Boolean(options.di.accounts);
 
 /**
  * The reader behind the cookie, out of this application's own directory.
@@ -60,13 +65,13 @@ export const standingIn = (options: XcoreBridgeOptions) =>
  * and there is no rotation to make - and a caller reaching for one gets an empty
  * value rather than a convincing forgery.
  */
-export function localSessionOf(ctx: StandInContext, req: WebRequest, res: WebResponse) {
-  const accounts = ctx.options.di.local_accounts ?? [];
+export async function localSessionOf(ctx: StandInContext, req: WebRequest, res: WebResponse) {
+  const store = ctx.options.di.accounts;
   const jar = jarOf(req, res);
   const sealed = ctx.sessions.read(jar);
-  if (!sealed) return null;
+  if (!sealed || !store) return null;
 
-  const account = findById(accounts, sealed.userId);
+  const account = await findById(store, sealed.userId);
   if (!account) {
     ctx.options.logger?.warn?.(`[sso] a local session pointed at ${sealed.userId}, which is no longer in the directory`);
     ctx.sessions.clear(jar);
@@ -97,11 +102,12 @@ export async function signInLocally(
   res: WebResponse,
   credentials: { email: string; password: string }
 ) {
-  if (!standingIn(ctx.options)) {
+  const store = ctx.options.di.accounts;
+  if (!standingIn(ctx.options) || !store) {
     throw new SsoError("NOT_CONFIGURED", "There is no local directory here: signing in goes through the provider");
   }
 
-  const account = await signIn(ctx.options.di.local_accounts ?? [], credentials.email, credentials.password);
+  const account = await signIn(store, credentials.email, credentials.password);
   if (!account) return null;
 
   const resolved = meOf(account, ctx.identity.resource ?? "");
@@ -111,4 +117,51 @@ export async function signInLocally(
   });
   ctx.options.logger?.info?.(`[sso] ${resolved.user.email} signed in against this application's own directory`);
   return resolved;
+}
+
+/**
+ * Create a reader in this application's own directory, hashing on the way in.
+ *
+ * THE HASH IS PRODUCED HERE, and that is the whole reason this exists rather than an
+ * application calling `di.accounts.create` itself. `verifyPassword` reads a format
+ * and a set of scrypt parameters; anything that writes them somewhere else has to
+ * reproduce both, and the day one of the two moves nothing fails loudly - every
+ * password is simply wrong at once.
+ *
+ * The id is composed the same way a lent record's is, so a store may write it or
+ * leave it and the cookie opens either way.
+ */
+export async function createLocalAccount(
+  ctx: StandInContext,
+  input: Omit<StandInAccount, "passwordHash"> & { password: string }
+) {
+  const store = ctx.options.di.accounts;
+  if (!store?.create) {
+    throw new SsoError("NOT_CONFIGURED", "This application lent no way to create an account: `di.accounts.create`");
+  }
+
+  const { password, ...rest } = input;
+  const account: StandInAccount = { ...rest, passwordHash: await hashPassword(password) };
+  return store.create({ ...account, id: account.id ?? accountIdOf(account) });
+}
+
+/**
+ * Change what a reader holds, hashing a new password on the way in.
+ *
+ * Same rule, same reason: a password given here is hashed by this library and by
+ * nothing else. A patch carrying no password is passed through untouched.
+ */
+export async function updateLocalAccount(
+  ctx: StandInContext,
+  id: string,
+  patch: Partial<Omit<StandInAccount, "passwordHash">> & { password?: string }
+) {
+  const store = ctx.options.di.accounts;
+  if (!store?.update) {
+    throw new SsoError("NOT_CONFIGURED", "This application lent no way to update an account: `di.accounts.update`");
+  }
+
+  const { password, ...rest } = patch;
+  const written: Partial<StandInAccount> = password ? { ...rest, passwordHash: await hashPassword(password) } : rest;
+  await store.update(id, written);
 }

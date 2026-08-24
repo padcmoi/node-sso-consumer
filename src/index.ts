@@ -13,7 +13,14 @@
 // Nothing reads `process.env`, opens a store or holds a secret.
 
 export { XcoreBridge, createXcoreBridge } from "./xcore-bridge.js";
-export type { SsoRefusal, XcoreBridgeOptions, XcoreInjection, XcoreMode, XcoreStartResult } from "./bridge/contract.js";
+export type {
+  SsoRefusal,
+  XcoreAccountStore,
+  XcoreBridgeOptions,
+  XcoreInjection,
+  XcoreMode,
+  XcoreStartResult,
+} from "./bridge/contract.js";
 
 export { SsoConfigService, type SsoConfigServiceOptions } from "./config.service.js";
 export { SsoAuthService, type SsoAuthServiceOptions, type SsoResolution } from "./auth.service.js";
@@ -55,6 +62,8 @@ export { addressesOf, type ProviderAddresses, type ProviderEndpoint } from "./pr
 
 export { SsoError, isSessionOver, statusOf, type SsoErrorCode } from "./errors.js";
 export type { StandInAccount } from "./session/local-accounts.js";
+/** The id this library composes for a record, for a store that writes its own rows. */
+export { accountIdOf } from "./session/local-accounts.js";
 
 /**
  * The pair, and never one of the two.

@@ -9,7 +9,7 @@ export type { SsoMiddlewareOptions } from "./middleware-options.js";
 /**
  * Everything an application would otherwise have written itself, as middleware.
  *
- * One handler carries the five routes and passes through for anything else, so
+ * One handler carries the seven routes and passes through for anything else, so
  * mounting is a single `use` and there is no list of paths to keep in step. Two
  * more guard what comes after, and one maps this library's codes onto answers.
  *
@@ -29,7 +29,7 @@ export class SsoMiddleware {
     this.ctx = { options, base: baseOf(options) };
   }
 
-  /** The five routes, and a pass-through for everything else. */
+  /** The seven routes, and a pass-through for everything else. */
   routes() {
     return routesHandler(this.ctx);
   }

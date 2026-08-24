@@ -50,6 +50,14 @@ export interface SsoMiddlewareOptions {
   standingIn?(): boolean;
   /** Prove a reader against the application's own directory. Null: refused. */
   signIn?(req: WebRequest, res: WebResponse, credentials: { email: string; password: string }): Promise<SsoMe | null>;
+  /** Create one, then sign them in. Null: the address is already taken. */
+  signUp?(
+    req: WebRequest,
+    res: WebResponse,
+    input: { email: string; password: string; firstName: string; lastName: string }
+  ): Promise<SsoMe | null>;
+  /** Whether `<base>/sso/sign-up` answers at all. Off unless the application says so. */
+  signUpOpen?: boolean;
   /** The application's own sign-in screen. Only used while standing in. */
   loginPath?: string;
   /** End the session and answer where the reader goes. The bridge's own. */
@@ -77,7 +85,7 @@ export interface MiddlewareContext {
 }
 
 /**
- * Where the five routes are mounted. `/api/auth` unless the application says
+ * Where the seven routes are mounted. `/api/auth` unless the application says
  * otherwise.
  *
  * The default matters more than a default usually does, because x-core's console

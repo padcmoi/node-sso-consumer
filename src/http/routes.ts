@@ -1,5 +1,5 @@
 /**
- * The six routes this library ANSWERS, and nothing that guards anything.
+ * The seven routes this library ANSWERS, and nothing that guards anything.
  *
  * One handler carries them and passes through for everything else, so mounting is
  * a single `use` and there is no list of paths for an application to keep in step.
@@ -23,12 +23,13 @@ import type { WebHandler, WebRequest, WebResponse } from "./web.js";
 export const isMine = (path: string, base: string) =>
   path === `${base}/sso/start` ||
   path === `${base}/sso/sign-in` ||
+  path === `${base}/sso/sign-up` ||
   path === `${base}/sso/callback` ||
   path === `${base}/logout` ||
   path === `${base}/session` ||
   path === `${base}/realtime-ticket`;
 
-/** The five routes, and a pass-through for everything else. */
+/** The seven routes, and a pass-through for everything else. */
 export function routesHandler(ctx: MiddlewareContext) {
   const handler: WebHandler = async (req, res, next) => {
     const path = pathOf(req);
@@ -53,6 +54,7 @@ export function routesHandler(ctx: MiddlewareContext) {
       if (method === "GET" && path === `${ctx.base}/session`) return await session(ctx, req, res);
       if (method === "POST" && path === `${ctx.base}/realtime-ticket`) return await ticket(ctx, req, res);
       if (method === "POST" && path === `${ctx.base}/sso/sign-in`) return await localSignIn(ctx, req, res);
+      if (method === "POST" && path === `${ctx.base}/sso/sign-up`) return await localSignUp(ctx, req, res);
     } catch (error) {
       next(error);
       return;
@@ -87,6 +89,47 @@ async function localSignIn(ctx: MiddlewareContext, req: WebRequest, res: WebResp
   if (!me) return sendJson(res, 401, { error: "Wrong email or password" });
 
   sendJson(res, 200, { data: me });
+}
+
+/**
+ * Create a reader in this application's own directory, then sign them in.
+ *
+ * OPT-IN, and it has to be. An application may lend `di.accounts.create` for an
+ * administration screen and want nothing open to the internet, so a route that
+ * appeared the moment `create` existed would be a public sign-up nobody asked for.
+ * `routes.signUp: true` is what turns it on, and it is off by default.
+ *
+ * The PASSWORD arrives here and the hash is made inside the library. That is the
+ * whole reason this route exists rather than an application calling its own store:
+ * `verifyPassword` reads a format and a set of scrypt parameters, and anything
+ * writing them elsewhere has to reproduce both.
+ *
+ * Signed in on the way out, on the same cookie: a reader who has just created an
+ * account is a reader, and asking them to type what they typed a second ago is a
+ * second form for nothing.
+ */
+async function localSignUp(ctx: MiddlewareContext, req: WebRequest, res: WebResponse) {
+  if (!ctx.options.standingIn?.() || !ctx.options.signUp || !ctx.options.signUpOpen) {
+    return sendJson(res, 404, { error: "No open sign-up here" });
+  }
+
+  const body = asFields(await readJson(req));
+  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+  const password = typeof body?.password === "string" ? body.password : "";
+  const firstName = typeof body?.firstName === "string" ? body.firstName : "";
+  const lastName = typeof body?.lastName === "string" ? body.lastName : "";
+
+  // Refused HERE rather than by the store, so every application answers the same
+  // thing: a store left to reject an empty address would answer whatever its driver
+  // throws, which is a 500 carrying a column name.
+  if (!email.includes("@") || password.length < 8) {
+    return sendJson(res, 422, { error: "An email address and a password of at least 8 characters are required" });
+  }
+
+  const me = await ctx.options.signUp(req, res, { email, password, firstName, lastName });
+  if (!me) return sendJson(res, 409, { error: "That address is already taken" });
+
+  sendJson(res, 201, { data: me });
 }
 
 function start(ctx: MiddlewareContext, req: WebRequest, res: WebResponse) {

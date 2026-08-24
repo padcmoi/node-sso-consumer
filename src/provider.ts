@@ -122,13 +122,13 @@ const realtimeUrlOf = (api: URL) => {
  * type, and what it was given wins over what it would have derived - both without a
  * second key deciding which.
  */
-export function addressesOf(endpoint: ProviderEndpoint, logger?: SsoLogger) {
+export function addressesOf(endpoint: ProviderEndpoint, logger?: SsoLogger, warn = true) {
   const api = urlOf(endpoint.baseUrl);
 
   // Said out loud, because a wrong one is silent until a reader clicks. Everything
   // this library does keeps working - pairing, declaring, signing - and the only
   // sign is a `502` on a host that was never asked to serve anything.
-  if (!endpoint.frontUrl) {
+  if (!endpoint.frontUrl && warn) {
     logger?.warn?.(
       `[sso] no frontUrl was stated: falling back to ${frontUrlOf(api)}, which is a GUESS. ` +
         "The provider often serves its login window from a name of its own. State `provider.frontUrl` if a reader lands on a 502 signing in."

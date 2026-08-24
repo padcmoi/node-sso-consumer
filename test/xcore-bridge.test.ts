@@ -1,3 +1,4 @@
+import { accountIdOf, type StandInAccount } from "../src/session/local-accounts.js";
 import { describe, expect, it, vi } from "vitest";
 import { ENV } from "../src/environment.js";
 import { createXcoreBridge } from "../src/xcore-bridge.js";
@@ -64,7 +65,7 @@ const answering = () =>
 // The hash of "julien", written out rather than computed at import: `hashPassword`
 // is scrypt, so computing one here would spend its cost in every run of this file
 // for a value that never changes.
-const LOCAL = [
+const LOCAL: StandInAccount[] = [
   {
     email: "julien@julien.fr",
     passwordHash: "scrypt$16384$8$1$MDEyMzQ1Njc4OWFiY2RlZg$YtynpqNQ8WfUAfUFJ0NsdjFpDxAiDx2VZHa4oO5LRFw",
@@ -73,6 +74,19 @@ const LOCAL = [
     permissions: ["read:user"],
   },
 ];
+
+/**
+ * A directory over an array, which is what a test wants: the library asks for two
+ * reads and this answers them without a database.
+ *
+ * The point of the change it stands for is that the library no longer knows there IS
+ * an array. It calls, and something answers - here a closure, in an application a
+ * table.
+ */
+const directory = (accounts: StandInAccount[] = LOCAL) => ({
+  findByEmail: (email: string) => accounts.find((held) => held.email.toLowerCase() === email) ?? null,
+  findById: (id: string) => accounts.find((held) => accountIdOf(held) === id) ?? null,
+});
 
 describe("local, with a directory or without one", () => {
   // Local and lending NOTHING is not a stand-aside: there is no provider to ask and no
@@ -121,7 +135,7 @@ describe("local, with a directory or without one", () => {
     const bridge = createXcoreBridge({
       mode: "local",
       provider: { baseUrl: API_BASE },
-      di: { hmac: stubHmac(provider), environment: stubEnvironment(), local_accounts: LOCAL },
+      di: { hmac: stubHmac(provider), environment: stubEnvironment(), accounts: directory() },
     });
 
     const result = await bridge.start();
@@ -136,7 +150,7 @@ describe("local, with a directory or without one", () => {
     const bridge = createXcoreBridge({
       mode: "local",
       provider: { baseUrl: API_BASE },
-      di: { hmac: stubHmac(stubProvider()), environment: stubEnvironment(), local_accounts: LOCAL },
+      di: { hmac: stubHmac(stubProvider()), environment: stubEnvironment(), accounts: directory() },
     });
     await bridge.start();
 

@@ -43,8 +43,8 @@ export async function load(ctx: BootContext) {
 export async function standIn(ctx: BootContext) {
   if (!standingIn(ctx.options)) {
     ctx.options.logger?.error?.(
-      '[sso] NOT SERVING: `mode` is "local" and no `di.local_accounts` were lent, so there is no provider to ask ' +
-        'and no directory to read. Nothing behind a guard is served. Set `mode: "sso"`, or lend a directory.'
+      '[sso] NOT SERVING: `mode` is "local" and no `di.accounts` was lent, so there is no provider to ask and no ' +
+        'directory to read. Nothing behind a guard is served. Set `mode: "sso"`, or lend a directory.'
     );
     return {
       ok: false,
@@ -82,8 +82,8 @@ export async function standIn(ctx: BootContext) {
   }
 
   ctx.options.logger?.info?.(
-    `[sso] standing in for the provider: ${ctx.options.di.local_accounts?.length ?? 0} local account(s), ` +
-      "sessions held here, guards enforcing. No pairing, no propagation, no socket."
+    "[sso] standing in for the provider: sessions held here against this application's own directory, guards " +
+      "enforcing. No pairing, no propagation, no socket."
   );
   return { ok: true, status: "ready", paired: false, declared: false, reason: null } satisfies XcoreStartResult;
 }
@@ -214,7 +214,14 @@ export async function declareOnce(ctx: BootContext) {
  */
 export function announce(ctx: BootContext, result: XcoreStartResult) {
   if (result.ok && result.status === "ready") {
-    ctx.options.logger?.info?.(`[sso] ready against ${ctx.provider.apiBase} as ${ctx.identity.clientId}`);
+    // NOT "ready against <address>" in `"local"`, because there is nothing at that
+    // address and the line would name a provider that was never called. It read as
+    // a successful pairing to anybody scanning a log.
+    ctx.options.logger?.info?.(
+      ctx.options.mode === "local"
+        ? `[sso] ready on this application's own directory as ${ctx.identity.clientId}`
+        : `[sso] ready against ${ctx.provider.apiBase} as ${ctx.identity.clientId}`
+    );
   } else if (!result.ok) {
     ctx.options.logger?.error?.(
       `[sso] NOT SERVING (${result.status}): ${result.reason ?? "no reason given"}. ` +

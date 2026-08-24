@@ -2,7 +2,7 @@ import { SsoEnvironment } from "./environment.js";
 import { SsoRealtimeClient } from "./realtime/realtime.client.js";
 import { buildServices } from "./bridge/wiring.js";
 import { jarOf } from "./http/web.js";
-import { signInLocally, standingIn as isStandingIn } from "./bridge/stand-in.js";
+import { createLocalAccount, signInLocally, standingIn as isStandingIn, updateLocalAccount } from "./bridge/stand-in.js";
 import { startPropagation } from "./propagation.js";
 import * as access from "./bridge/access.js";
 import * as boot from "./bridge/boot.js";
@@ -16,6 +16,7 @@ import type { SsoRealtimeBridge } from "./realtime/bridge.js";
 import type { SsoSessionService } from "./session/session.service.js";
 import type { WebRequest, WebResponse } from "./http/web.js";
 import type { XcoreBridgeOptions, XcoreMode, XcoreStartResult } from "./bridge/contract.js";
+import type { StandInAccount } from "./session/local-accounts.js";
 import type { SsoMe } from "./types.js";
 
 export type { SsoRefusal, XcoreBridgeOptions, XcoreInjection, XcoreMode, XcoreStartResult } from "./bridge/contract.js";
@@ -29,7 +30,7 @@ export type { SsoRefusal, XcoreBridgeOptions, XcoreInjection, XcoreMode, XcoreSt
  * is behind it: the signed calls, the boot declaration and its proof that the
  * address really is the provider, the state cookie, the code exchange, the sealed
  * session, the rotation and its re-sealing, the credential queue, the permission
- * checks, the five routes, the error mapping, and the realtime socket with its two
+ * checks, the seven routes, the error mapping, and the realtime socket with its two
  * credentials and its close codes.
  *
  * What stays the application's: its signer, its own address, and its handlers.
@@ -52,7 +53,7 @@ export class XcoreBridge {
   readonly auth: SsoAuthService;
   /** The session machinery. `session()` below is what a handler actually calls. */
   readonly sessions: SsoSessionService;
-  /** The five routes, the two guards and the error mapping. */
+  /** The seven routes, the two guards and the error mapping. */
   readonly middleware: SsoMiddleware;
   /** The socket the browser dials, bridged to the provider's. */
   readonly realtime: SsoRealtimeBridge;
@@ -98,13 +99,17 @@ export class XcoreBridge {
 
   constructor(private readonly options: XcoreBridgeOptions) {
     this.mode = options.mode;
-    this.provider = addressesOf(options.provider, options.logger);
+    // No warning about a missing `frontUrl` in `"local"`: there is no login window
+    // to guess at, and the address itself is a placeholder the application had to
+    // invent because the type asks for one.
+    this.provider = addressesOf(options.provider, options.logger, options.mode === "sso");
 
     const services = buildServices(options, this.identity, this.provider, {
       serving: () => this.serving,
       portalUrl: () => this.portalUrl,
       resolve: (req, res) => this.sessionOf(req, res),
       signIn: (req, res, credentials) => this.signInLocally(req, res, credentials),
+      signUp: (req, res, input) => this.signUpLocally(req, res, input),
       logout: (req, res) => this.logout(req, res),
     });
 
@@ -143,6 +148,53 @@ export class XcoreBridge {
   signInLocally(req: WebRequest, res: WebResponse, credentials: { email: string; password: string }) {
     return signInLocally(this.ctx, req, res, credentials);
   }
+
+  /**
+   * Create a reader, then sign them in on the same response.
+   *
+   * What `<base>/sso/sign-up` calls, and what an application calls itself when it
+   * would rather draw its own flow. `null` when the address is already taken -
+   * refused rather than thrown, because a taken address is an answer to a form and
+   * not a fault.
+   */
+  async signUpLocally(
+    req: WebRequest,
+    res: WebResponse,
+    input: { email: string; password: string; firstName: string; lastName: string }
+  ) {
+    const store = this.options.di.accounts;
+    if (await store?.findByEmail(input.email)) return null;
+
+    await createLocalAccount(this.ctx, {
+      email: input.email,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      password: input.password,
+      permissions: [],
+    });
+
+    return this.signInLocally(req, res, { email: input.email, password: input.password });
+  }
+
+  /**
+   * Writing to this application's own directory - `mode: "local"` only.
+   *
+   * TWO VERBS, and the reason they are here rather than in the application is the
+   * hash. `verifyPassword` reads a format and a set of scrypt parameters, and
+   * anything producing them somewhere else has to reproduce both; the day one of the
+   * two moves, nothing fails loudly - every password is simply wrong at once.
+   *
+   * So a screen that creates an account calls `signUp` and hands over a PASSWORD.
+   * `di.accounts.create` receives a record whose `passwordHash` this library made,
+   * and never sees the password at all.
+   */
+  readonly accounts = {
+    /** Create one. Refuses when the application lent no `di.accounts.create`. */
+    signUp: (input: Omit<StandInAccount, "passwordHash"> & { password: string }) => createLocalAccount(this.ctx, input),
+    /** Change one. A patch with no password leaves the hash where it is. */
+    update: (id: string, patch: Partial<Omit<StandInAccount, "passwordHash">> & { password?: string }) =>
+      updateLocalAccount(this.ctx, id, patch),
+  };
 
   /**
    * STANDING IN: `mode` is `"local"` and this application lent a directory.

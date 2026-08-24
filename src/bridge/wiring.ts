@@ -25,6 +25,11 @@ export interface BridgeHooks {
   portalUrl(): string;
   resolve(req: WebRequest, res: WebResponse): Promise<{ me: SsoMe; tokens: SsoTokens; userId: string } | null>;
   signIn(req: WebRequest, res: WebResponse, credentials: { email: string; password: string }): Promise<SsoMe | null>;
+  signUp(
+    req: WebRequest,
+    res: WebResponse,
+    input: { email: string; password: string; firstName: string; lastName: string }
+  ): Promise<SsoMe | null>;
   logout(req: WebRequest, res: WebResponse): Promise<string>;
 }
 
@@ -125,6 +130,8 @@ export function buildServices(
     // this application's own sign-in screen.
     standingIn: () => standingIn(options),
     signIn: (req, res, credentials) => hooks.signIn(req, res, credentials),
+    signUp: (req, res, input) => hooks.signUp(req, res, input),
+    signUpOpen: options.routes?.signUp === true,
     logout: (req, res) => hooks.logout(req, res),
     logger: options.logger,
   });
