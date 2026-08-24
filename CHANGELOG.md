@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased] - 2026-08-24
+## [0.2.0] - 2026-08-24
 
 - Give the five POC Dockerfiles a `lib` stage that compiles `src/` INSIDE the image. `file:../..` installs the library directory packed the way `npm publish` packs it, which needs `dist/` to exist - and `dist/` is in the root `.dockerignore` deliberately, because a build output copied from a host is whatever that host last compiled. Three of the four were left without the mirrored tree in `0.2.0`'s first pass and would not have built at all; the two whose runtime stage reinstalls - `nextjs16` and the Nest API - needed the tree twice, not once. What each POC installs is now provably the source in this repository
 - Verified by RUNNING all four, which is what caught the rest: a missing `XcoreSeenAccount` import in the Next store that no root typecheck covers, `last_seen_at` frozen at its creation time until it was written explicitly, and the boot checks - each stack declares under its own identity, answers `401` on the session, `302` to the portal for a page, and creates `app_sso_accounts` in its own database. The local POC passes its nine end-to-end checks and its projection rows move on every sign-in
