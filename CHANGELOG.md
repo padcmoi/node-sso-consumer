@@ -3,6 +3,8 @@
 ## [Unreleased] - 2026-08-24
 
 - Point the four POC at the registry. They declared `file:../../packages/...0.1.1.tgz`, and `packages/` was deleted in `0.1.6`, so `pnpm install` failed outright in all four - which meant nothing could try a release before it went out. They now declare `^0.1.6` and their lockfiles resolve to `0.1.7`. Nothing published changes: `poc/` is not in `files`
+- Take `COPY packages/` out of the four Dockerfiles, which is the same breakage in a second place and the one that actually stopped a build: `failed to compute cache key: "/packages": not found`. The wide build context stays - it is the library's root rather than each POC's folder - because the root `.dockerignore` is what keeps it cheap, and narrowing it is a change to make on its own rather than in passing
+- Verified rather than asserted: the three stacks build, boot and declare against the provider, each under its own identity, and the four routes answer the same way in all three - `401` on the session and the ticket, `302` to the portal for a page, `302` to the login window with a fresh state for `sso/start`. None of them re-paired: their database volumes had kept `INSTALLED`, which is precisely what that key is for
 
 ## [0.1.7] - 2026-08-24
 

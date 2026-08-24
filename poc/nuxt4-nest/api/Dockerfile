@@ -2,12 +2,10 @@ FROM node:22-alpine AS build
 
 RUN corepack enable
 
-# The build context is the LIBRARY's root, not this folder, and the tree is MIRRORED
-# here on purpose: `file:../../../packages/*.tgz` in `package.json` then resolves to
-# the same file inside the image as it does on a host. One path, true in both places.
-WORKDIR /build
-COPY packages/ ./packages/
-
+# The build context is the LIBRARY's root, not this folder. The tree used to be
+# MIRRORED here so that `file:../../../packages/*.tgz` resolved to the same file
+# inside the image as on a host; that folder is gone and the library comes from the
+# registry now.
 WORKDIR /build/poc/nuxt4-nest/api
 COPY poc/nuxt4-nest/api/ ./
 
@@ -18,11 +16,7 @@ FROM node:22-alpine AS runtime
 
 RUN corepack enable
 
-# The same mirrored tree, because the production install reads the same tarball path.
 # Nest is not bundled: `dist` needs its `node_modules` beside it at runtime.
-WORKDIR /build
-COPY packages/ ./packages/
-
 WORKDIR /build/poc/nuxt4-nest/api
 COPY poc/nuxt4-nest/api/package.json ./
 RUN pnpm install --prod --no-frozen-lockfile
