@@ -19,6 +19,7 @@ export type {
   XcoreBridgeOptions,
   XcoreInjection,
   XcoreMode,
+  XcoreSeenAccount,
   XcoreStartResult,
 } from "./bridge/contract.js";
 

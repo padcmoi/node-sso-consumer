@@ -1,6 +1,7 @@
 import { SsoError } from "../errors.js";
 import { clientContextOf, jarOf } from "../http/web.js";
 import { localSessionOf, standingIn, type StandInContext } from "./stand-in.js";
+import type { SeenAccounts } from "./projection.js";
 import type { SsoLiveAccounts } from "../session/live-accounts.js";
 import type { WebRequest, WebResponse } from "../http/web.js";
 import type { SsoMe } from "../types.js";
@@ -8,6 +9,8 @@ import type { SsoMe } from "../types.js";
 /** Everything a guarded read touches: the seal, the followed accounts, the two states. */
 export interface AccessContext extends StandInContext {
   live: SsoLiveAccounts | null;
+  /** The accounts this process has already handed to `di.accounts.seen`. */
+  seen: SeenAccounts;
   serving(): boolean;
   portalUrl(): string;
 }
@@ -39,7 +42,11 @@ export async function sessionOf(ctx: AccessContext, req: WebRequest, res: WebRes
   // permission that survives being taken away, which is the one thing this whole
   // library exists not to do. Removing a right from the list therefore applies on
   // the next request, exactly as a revocation from x-core does.
-  if (standingIn(ctx.options)) return localSessionOf(ctx, req, res);
+  if (standingIn(ctx.options)) {
+    const local = await localSessionOf(ctx, req, res);
+    if (local) ctx.seen.announce(ctx.options, local.me, "local");
+    return local;
+  }
 
   // LOCAL, and nothing lent. Nobody can sign in here at all: there is no provider to
   // ask and no directory to read. It is a misconfiguration rather than a signed-out
@@ -69,6 +76,7 @@ export async function sessionOf(ctx: AccessContext, req: WebRequest, res: WebRes
 
   if (!resolved) {
     ctx.live?.forget(sealed.userId);
+    ctx.seen.forget(sealed.userId);
     return null;
   }
 
@@ -82,10 +90,17 @@ export async function sessionOf(ctx: AccessContext, req: WebRequest, res: WebRes
     );
     ctx.sessions.clear(jar);
     ctx.live?.forget(resolved.userId);
+    ctx.seen.forget(resolved.userId);
     return null;
   }
 
   ctx.live?.remember(resolved.userId, resolved.me, resolved.tokens.accessToken);
+
+  // AFTER the door, never before: a reader refused for this application has no
+  // business being written into its table. Announced once per process and not
+  // awaited - see `projection.ts`.
+  ctx.seen.announce(ctx.options, resolved.me, "sso");
+
   return resolved;
 }
 
@@ -142,7 +157,13 @@ export async function logout(ctx: AccessContext, req: WebRequest, res: WebRespon
   if (standingIn(ctx.options)) ctx.sessions.clear(jar);
   else await ctx.sessions.end(jar);
 
-  if (sealed) ctx.live?.forget(sealed.userId);
+  if (sealed) {
+    ctx.live?.forget(sealed.userId);
+    // Forgotten here too, so the NEXT sign-in announces the account again and
+    // refreshes the row rather than leaving whatever was cached at the first read of
+    // this process. A sign-out and a sign-in is the moment the fresh values arrive.
+    ctx.seen.forget(sealed.userId);
+  }
 
   return standingIn(ctx.options) ? (ctx.options.routes?.loginPath ?? "/login") : ctx.portalUrl();
 }

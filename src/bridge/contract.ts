@@ -42,7 +42,28 @@ export interface SsoRefusal {
 }
 
 /**
- * The four ways this library reaches an application's own directory.
+ * ONE row of the account table, as this library hands it over to be written.
+ *
+ * Not `SsoMe` and not `StandInAccount`: those are what a READER is, and this is what
+ * a ROW is - the identity and the five fields worth keeping beside it. Handing over
+ * the whole account would invite an application to store the permissions too, which
+ * is the one thing that must not be copied: x-core recomputes them with every `me`,
+ * and a copy is a second truth that goes stale without saying so.
+ */
+export interface XcoreSeenAccount {
+  /** The FK target. x-core's UUID, or the local id - one column holds both. */
+  id: string;
+  /** Which directory it came from, so nothing downstream has to guess. */
+  origin: XcoreMode;
+  email: string | null;
+  displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  avatarUrl: string | null;
+}
+
+/**
+ * How this library reaches an application's own account table.
  *
  * Data access, and nothing above it. The library decides who may in, what a wrong
  * password answers and what a record has to contain; these say where the rows are.
@@ -50,22 +71,47 @@ export interface SsoRefusal {
  * Every one may answer a promise or a value, because a directory is a table for one
  * application and a literal for the next, and neither should have to pretend.
  *
- * `create` and `update` are OPTIONAL, and an application that only reads a directory
- * somebody else seeded lends neither. They exist so that a hash is never produced
- * outside this library: `xcore.accounts.signUp` hashes and calls `create`, and an
- * application that wrote the hash itself would have to reproduce the scrypt
- * parameters - which does not fail loudly the day they drift, it fails as every
- * password being wrong at once.
+ * EVERYTHING IS OPTIONAL, and that is not laxity: the four reads and writes below
+ * belong to `mode: "local"`, while `seen` belongs to BOTH. An application on x-core
+ * that wants a foreign key target lends `seen` alone, and would otherwise have had to
+ * write two lookups it will never call. What `"local"` needs is checked where it is
+ * used: without `findByEmail` and `findById` the library is not standing in, and every
+ * door shuts.
+ *
+ * `create` and `update` exist so that a hash is never produced outside this library:
+ * `xcore.accounts.signUp` hashes and calls `create`, and an application that wrote the
+ * hash itself would have to reproduce the scrypt parameters - which does not fail
+ * loudly the day they drift, it fails as every password being wrong at once.
  */
 export interface XcoreAccountStore {
-  /** The sign-in read. Matched case-insensitively: an address is. */
-  findByEmail(email: string): Promise<StandInAccount | null> | StandInAccount | null;
-  /** The per-request read, from the id inside the sealed cookie. */
-  findById(id: string): Promise<StandInAccount | null> | StandInAccount | null;
-  /** Write a record whose `passwordHash` this library has just produced. */
+  /** `"local"`. The sign-in read. Matched case-insensitively: an address is. */
+  findByEmail?(email: string): Promise<StandInAccount | null> | StandInAccount | null;
+  /** `"local"`. The per-request read, from the id inside the sealed cookie. */
+  findById?(id: string): Promise<StandInAccount | null> | StandInAccount | null;
+  /** `"local"`. Write a record whose `passwordHash` this library has just produced. */
   create?(account: StandInAccount): Promise<StandInAccount> | StandInAccount;
-  /** Change what one holds - a password, a name, a right. */
+  /** `"local"`. Change what one holds - a password, a name, a right. */
   update?(id: string, patch: Partial<StandInAccount>): Promise<void> | void;
+  /**
+   * BOTH MODES. A reader was just seen: write their row, or refresh it.
+   *
+   * WHY THIS IS HERE AT ALL. An application's own rows belong to somebody, and a
+   * foreign key cannot cross two databases - the account lives in x-core's. So the
+   * application needs a local row to point at, and the only thing that knows when to
+   * write it is whatever resolved the session.
+   *
+   * WHY THE LIBRARY AND NOT THE APPLICATION. `sessionOf()` already hands back the
+   * account on every request, so an application could do this itself - and would then
+   * write to its database on every click. The library remembers which accounts it has
+   * already seen IN THIS PROCESS, so this fires once per account and again at each
+   * sign-in, which is when the cached fields are worth refreshing anyway.
+   *
+   * It is called and NOT awaited by the read path: a projection that is slow, or that
+   * throws, must not turn a good session into a refused one. Failures are logged.
+   *
+   * OPTIONAL, and lending nothing simply means this application keeps no such table.
+   */
+  seen?(account: XcoreSeenAccount): Promise<void> | void;
 }
 
 export interface XcoreInjection {

@@ -166,7 +166,7 @@ export function meOf(account: StandInAccount, resource: string) {
  * it turns this route into a way of listing which addresses exist here.
  */
 export async function signIn(store: XcoreAccountStore, email: string, password: string) {
-  const account = (await store.findByEmail(email.trim().toLowerCase())) ?? null;
+  const account = (await store.findByEmail?.(email.trim().toLowerCase())) ?? null;
 
   const matched = await verifyPassword(password, account?.passwordHash ?? DECOY);
   return matched ? account : null;
@@ -190,7 +190,7 @@ const DECOY = "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAA
  * be the id this library composed - otherwise a session opens onto the wrong reader.
  */
 export async function findById(store: XcoreAccountStore, id: string) {
-  const account = (await store.findById(id)) ?? null;
+  const account = (await store.findById?.(id)) ?? null;
   if (!account) return null;
   return idOf(account) === id ? account : null;
 }

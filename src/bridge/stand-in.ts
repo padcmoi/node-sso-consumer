@@ -6,6 +6,7 @@ import type { StandInAccount } from "../session/local-accounts.js";
 import type { SsoEnvironment } from "../environment.js";
 import type { SsoSessionService } from "../session/session.service.js";
 import type { WebRequest, WebResponse } from "../http/web.js";
+import type { SeenAccounts } from "./projection.js";
 import type { XcoreBridgeOptions } from "./contract.js";
 
 /**
@@ -32,6 +33,8 @@ export interface StandInContext {
   options: XcoreBridgeOptions;
   identity: SsoEnvironment;
   sessions: SsoSessionService;
+  /** Optional here: the boot builds a context without one, and never signs anybody in. */
+  seen?: SeenAccounts;
 }
 
 /**
@@ -42,13 +45,17 @@ export interface StandInContext {
  * guards enforce, a missing right is a `403` - only the answer to "who is this"
  * comes from the application's own table instead of from x-core.
  *
- * THE ACCESSOR'S PRESENCE decides this, not a row count, and it could not be
- * otherwise: this is read on every request and synchronously, where counting rows is
- * a query. It is also the better question - an empty table is an application whose
- * first account has not been created yet, which refuses every sign-in without being
- * misconfigured. Lending nothing at all is the misconfiguration.
+ * THE TWO READS decide this, not a row count, and not the mere presence of
+ * `di.accounts` - which an application on x-core may lend for `seen` alone. It could
+ * not be a count either: this is read on every request and synchronously, where
+ * counting rows is a query. It is also the better question - an empty table is an
+ * application whose first account has not been created yet, which refuses every
+ * sign-in without being misconfigured. Lending no way to read is the misconfiguration.
  */
-export const standingIn = (options: XcoreBridgeOptions) => options.mode === "local" && Boolean(options.di.accounts);
+export const standingIn = (options: XcoreBridgeOptions) =>
+  options.mode === "local" &&
+  typeof options.di.accounts?.findByEmail === "function" &&
+  typeof options.di.accounts.findById === "function";
 
 /**
  * The reader behind the cookie, out of this application's own directory.
@@ -115,6 +122,11 @@ export async function signInLocally(
     userId: resolved.user.id,
     tokens: { accessToken: "", accessTokenExpiresAt: "", refreshToken: "", refreshTokenExpiresAt: "" },
   });
+  // FORCED: this is a sign-in, and the name or the avatar may have moved since the
+  // row was written. It is also the rare moment - once per reader per session - where
+  // refreshing costs nothing.
+  ctx.seen?.announce(ctx.options, resolved, "local", true);
+
   ctx.options.logger?.info?.(`[sso] ${resolved.user.email} signed in against this application's own directory`);
   return resolved;
 }

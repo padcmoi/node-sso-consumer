@@ -3,6 +3,7 @@ import { SsoRealtimeClient } from "./realtime/realtime.client.js";
 import { buildServices } from "./bridge/wiring.js";
 import { jarOf } from "./http/web.js";
 import { createLocalAccount, signInLocally, standingIn as isStandingIn, updateLocalAccount } from "./bridge/stand-in.js";
+import { SeenAccounts } from "./bridge/projection.js";
 import { startPropagation } from "./propagation.js";
 import * as access from "./bridge/access.js";
 import * as boot from "./bridge/boot.js";
@@ -71,6 +72,14 @@ export class XcoreBridge {
   private readonly identity = new SsoEnvironment();
 
   /**
+   * The readers this process has already handed to `di.accounts.seen`.
+   *
+   * Held on the bridge rather than on a module, so two bridges in one process - a
+   * test, a worker building its own - do not share a memory of what the other saw.
+   */
+  private readonly seen = new SeenAccounts();
+
+  /**
    * The state the boot and the guarded read work on, held in one place.
    *
    * Handed to them rather than reached for: neither is a method of anything, and
@@ -128,6 +137,7 @@ export class XcoreBridge {
       provider: this.provider,
       sessions: this.sessions,
       live: this.live,
+      seen: this.seen,
       serving: () => this.serving,
       portalUrl: () => this.portalUrl,
     };
@@ -163,7 +173,7 @@ export class XcoreBridge {
     input: { email: string; password: string; firstName: string; lastName: string }
   ) {
     const store = this.options.di.accounts;
-    if (await store?.findByEmail(input.email)) return null;
+    if (await store?.findByEmail?.(input.email)) return null;
 
     await createLocalAccount(this.ctx, {
       email: input.email,
