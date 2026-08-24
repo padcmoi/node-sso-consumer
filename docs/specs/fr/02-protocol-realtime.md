@@ -57,13 +57,13 @@ Envoyées par x-core :
 
 ## Les topics
 
-Un topic est un **poller**, exécuté par socket, qui ne publie que lorsque le JSON diffère de la dernière frame envoyée. Une page au repos coûte donc une requête bornée toutes les quelques secondes, et une page inchangée ne coûte aucun trafic. Chacun est répondu immédiatement à la souscription, si bien qu'un abonné n'attend jamais un intervalle entier pour sa première frame.
+Un topic est un **poller**, exécuté par socket, qui ne publie que lorsque le JSON diffère de la dernière frame envoyée. Son intervalle est celui que le watcher déclare quand il en déclare un, et `1 s` sinon, avec un plancher à `500 ms` - les chiffres ci-dessous sont donc les réglages actuels de x-core plutôt que des promesses du protocole. Une page au repos coûte donc une requête bornée toutes les quelques secondes, et une page inchangée ne coûte aucun trafic. Chacun est répondu immédiatement à la souscription, si bien qu'un abonné n'attend jamais un intervalle entier pour sa première frame.
 
 | Topic           | Frame                                                            | Intervalle | À quoi il sert                                                                                             |
 | --------------- | ---------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
 | `me-changed`    | le compte entier, la forme de [session.json](session.json)       | 3 s        | identité, profil, permissions et groupes, poussés dès que l'un d'eux bouge                                 |
-| `me-signed-out` | `false` tant qu'elle tient, `true` une fois                      | 3 s        | la session est partie : déconnecté du SSO ailleurs, compte désactivé, ou accès à cette application révoqué |
-| `me-sessions`   | les connexions du compte, 50 max, même forme que la lecture HTTP | 3 s        | l'écran des sessions, souscrit seulement tant qu'il est monté                                              |
+| `me-signed-out` | `false` tant qu'elle tient, `true` une fois                      | 1 s        | la session est partie : déconnecté du SSO ailleurs, compte désactivé, ou accès à cette application révoqué |
+| `me-sessions`   | les connexions du compte, 50 max, même forme que la lecture HTTP | 1 s        | l'écran des sessions, souscrit seulement tant qu'il est monté                                              |
 
 `me-changed` et `me-signed-out` sont suivis pour la **session entière** et jamais désabonnés, quelle que soit la page affichée et que la fenêtre ait le focus ou non. Les deux ou aucun : un état alimenté par `me-changed` seul est un cache, et un compte révoqué se promènerait avec les derniers droits qu'on lui a poussés.
 
@@ -78,10 +78,10 @@ Du polling, pas un bus d'événements, et pour une raison : les valeurs publiée
 | Ce qui arrive                                                                    | Comment ça remonte    | Sous  |
 | -------------------------------------------------------------------------------- | --------------------- | ----- |
 | une permission accordée ou révoquée, un groupe déplacé, un profil édité ailleurs | `me-changed`          | ~3 s  |
-| la session SSO fermée, le compte désactivé, l'accès révoqué                      | `me-signed-out: true` | ~3 s  |
+| la session SSO fermée, le compte désactivé, l'accès révoqué                      | `me-signed-out: true` | ~1 s  |
 | la même chose, vue depuis la passerelle                                          | fermeture `4003`      | ~10 s |
 
-Temps réel ici veut dire environ trois secondes. Une librairie qui promettrait l'instant mentirait de trois secondes.
+Temps réel ici veut dire une à trois secondes selon le topic : `me-changed` porte le compte entier et c'est le coûteux, donc il tourne à trois, alors que la fin d'une session tourne à une. Une librairie qui promettrait l'instant mentirait d'une seconde au mieux.
 
 ## La revalidation, et pourquoi le code de fermeture compte
 

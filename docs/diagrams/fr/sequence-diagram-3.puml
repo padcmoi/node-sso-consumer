@@ -57,6 +57,18 @@ group Branche "Ticket valide" (suite)
 
     XCore -> XCore : Génération du nouveau SsoMe
 
+    note over XCore
+    C'est du POLLING, pas un bus d'événements : x-core
+    relit et ne publie que si le JSON a bougé.
+
+    Le delai est donc de l'ordre de la seconde a trois
+    secondes selon le topic, jamais l'instant.
+
+    Les intervalles exacts appartiennent a x-core et
+    sont dans specs/02-protocol-realtime.md, pas ici :
+    une copie ici derivera le jour ou ils bougent.
+    end note
+
 
     == 10. ME envoyé directement par WebSocket ==
 

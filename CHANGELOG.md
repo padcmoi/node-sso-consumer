@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## [0.1.5] - 2026-08-24
+
+- Say the real polling intervals. `02-protocol-realtime.md` gave `3 s` for all three topics; only `me-changed` declares that, and `me-signed-out` and `me-sessions` take x-core's default of `1 s`, with a `500 ms` floor. The error ran in the direction that matters - the end of a session arrives three times faster than the document promised - and it was in the latency table too. Where the figures come from is written down with them now, because they are x-core's current settings rather than promises of the protocol
+- Say in the diagrams that this is polling. Section 9 draws an account changing in x-core, which is the one place a reader can wonder how long the arrow after it takes, and an arrow cannot answer that: the natural reading is the instant, and the truth is one to three seconds. The note gives the order of magnitude and sends the reader to the spec for the values rather than copying them, since a copy in a diagram drifts the day they move
+
 ## [0.1.4] - 2026-08-24
 
 - Ship the printable sheets as JPEG rather than PNG. `0.1.3` published eight A4 renderings at about 630 KB each, which is 5.1 MB of images in a package that is otherwise under half a megabyte - so installing this library to call six routes pulled ten times its own weight in pictures. At quality 88 with no chroma subsampling the text stays crisp at 200 dpi, and the eight come to 3.6 MB

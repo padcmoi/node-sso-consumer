@@ -57,13 +57,13 @@ Sent by x-core:
 
 ## The topics
 
-A topic is a **poller**, run per socket, that publishes only when the JSON differs from the last frame it sent. So an idle page costs one bounded query every few seconds and an unchanged one costs no traffic at all. Each is answered at once on subscription, so a subscriber never waits a full interval for its first frame.
+A topic is a **poller**, run per socket, that publishes only when the JSON differs from the last frame it sent. Its interval is the watcher's own when it states one and `1 s` when it does not, with a `500 ms` floor - so the figures below are x-core's current settings rather than promises of the protocol. So an idle page costs one bounded query every few seconds and an unchanged one costs no traffic at all. Each is answered at once on subscription, so a subscriber never waits a full interval for its first frame.
 
 | Topic           | Frame                                                            | Interval | What it is for                                                                                                   |
 | --------------- | ---------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
 | `me-changed`    | the whole account, the shape of [session.json](session.json)     | 3 s      | identity, profile, permissions and groups, pushed whenever any of them moves                                     |
-| `me-signed-out` | `false` while it holds, `true` once                              | 3 s      | the session is gone: signed out of the SSO elsewhere, account deactivated, or access to this application revoked |
-| `me-sessions`   | the account's sign-ins, 50 max, same shape the HTTP read answers | 3 s      | the sessions screen, subscribed only while it is mounted                                                         |
+| `me-signed-out` | `false` while it holds, `true` once                              | 1 s      | the session is gone: signed out of the SSO elsewhere, account deactivated, or access to this application revoked |
+| `me-sessions`   | the account's sign-ins, 50 max, same shape the HTTP read answers | 1 s      | the sessions screen, subscribed only while it is mounted                                                         |
 
 `me-changed` and `me-signed-out` are followed for the **whole session** and never unsubscribed, whatever page is showing and whether or not the window has focus. Both or neither: a state fed by `me-changed` alone is a cache, and a revoked account would keep walking around holding the last rights it was pushed.
 
@@ -76,10 +76,10 @@ Polling, not an event bus, and for a reason: the values published here are rows 
 | What happens                                                               | How it arrives        | Within |
 | -------------------------------------------------------------------------- | --------------------- | ------ |
 | a permission granted or revoked, a group moved, a profile edited elsewhere | `me-changed`          | ~3 s   |
-| the SSO session closed, the account deactivated, access revoked            | `me-signed-out: true` | ~3 s   |
+| the SSO session closed, the account deactivated, access revoked            | `me-signed-out: true` | ~1 s   |
 | the same, seen from the gateway                                            | close `4003`          | ~10 s  |
 
-Realtime here means about three seconds. A library that promised the instant would be lying by three seconds.
+Realtime here means one to three seconds depending on the topic: `me-changed` carries the whole account and is the expensive one, so it runs at three, while the end of a session runs at one. A library that promised the instant would be lying by a second at best.
 
 ## Revalidation, and why the close code matters
 
