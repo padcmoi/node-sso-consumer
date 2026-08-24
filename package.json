@@ -1,6 +1,6 @@
 {
   "name": "@gestionpratique/node-sso-consumer",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "SSO consumer runtime for Node.js apps: pairing, session, permissions and realtime against an x-core identity provider.",
   "license": "MIT",
   "type": "module",
@@ -43,6 +43,7 @@
   "files": [
     "dist",
     "docs",
+    "LLM",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

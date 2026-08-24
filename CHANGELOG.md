@@ -1,6 +1,11 @@
 # CHANGELOG
 
-## [0.1.6] - 2026-08-24
+## [0.1.7] - 2026-08-24
+
+- Add `LLM/`, one flat English document written for an agent asked to install this library into an application. The material existed - a README, six guides, nine specifications, four diagrams, in two languages - and that is the problem it solves: nothing said which one is authoritative, so a model traversing them picks a page and invents the rest. What it needs is the opposite of a human's documentation: one file, no navigation, no second language, and the order of operations spelled out
+- Write it against the integration that runs in x-opendata rather than against an example composed for the occasion, with the hostnames and the install token replaced. Five files, and each is the one that is deployed: the service, the route mounting with its `next` adapter, the store entity, the browser plugin, the composable
+- Say what NOT to do, which is what the guides leave out because it goes without saying for a human. Six traps, each of which produced a system that looked correct: the provider address without its port, a bridge built per module evaluation instead of per process, the session guard running on assets, the realtime path colliding with a dev server's HMR socket, `trust proxy` mistaken for a dependency of this library, and `4402` read as fatal
+- Add `LLM` to `files`, without which the folder stays in the repository and never reaches the agent that just installed the package - which is the whole point of shipping it
 
 - Delete `packages/`, and the two tarballs of `0.1.1` and `0.1.2` it held. They existed because the library had no registry to install from, so a POC pointed at a file path and the packed artefact had to be committed next to the source it was packed from - which means a binary in git that goes stale the moment anything is edited, and two versions of it sitting there proves the point. The library is on npm since `0.1.3`, so the reason is gone. The four POC still declare `file:../../packages/...0.1.1.tgz` and their install breaks until they are pointed at the registry
 
