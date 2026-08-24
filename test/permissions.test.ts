@@ -33,10 +33,15 @@ describe("reading what an account may do here", () => {
     expect(reader.canAny(held, "delete-queues")).toBe(false);
   });
 
-  it("needs no special case for a root account, which comes back holding the lot", () => {
-    // The flag says where the power comes from. What decides is the list.
+  it("lets a root account pass everything, list or no list", () => {
+    // Reversed in 0.2.0, and the lent directory is why: against x-core a root
+    // account comes back holding the whole catalogue, so reading the flag changes
+    // nothing there - but offline there is no catalogue to expand, and a root
+    // account arrived holding whatever list it was written with. The browser half
+    // has always read the flag first; now both halves agree.
     expect(reader.can(permissions(["infrastructure:delete-queues"], true), "delete-queues")).toBe(true);
-    expect(reader.can(permissions([], true), "delete-queues")).toBe(false);
+    expect(reader.can(permissions([], true), "delete-queues")).toBe(true);
+    expect(reader.can(permissions([], false), "delete-queues")).toBe(false);
   });
 
   it("names what is missing when it refuses", () => {
