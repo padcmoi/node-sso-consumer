@@ -14,15 +14,15 @@ export default defineNitroPlugin(async () => {
   // The shelf FIRST, and awaited: `start()` reads it immediately, and a boot that
   // ran while the tables were still being created would report a store it could not
   // read. Nitro does not await its plugins; this does.
-  await schemaReady()
+  await schemaReady();
 
-  const started = await xcore.start()
+  const started = await xcore.start();
 
-  console.info(`[poc] start() -> ${started.status} (ok=${started.ok})`)
+  console.info(`[poc] start() -> ${started.status} (ok=${started.ok})`);
   if (!started.ok) {
     console.error(
-      `[poc] the SSO is not serving (${started.status}): ${started.reason ?? 'no reason given'}. ` +
-        'In local mode that means no directory was lent - see `di.local_accounts` in `server/utils/xcore.ts`.',
-    )
+      `[poc] the SSO is not serving (${started.status}): ${started.reason ?? "no reason given"}. ` +
+        "In local mode that means no directory was lent - see `di.accounts` in `server/utils/xcore.ts`."
+    );
   }
-})
+});

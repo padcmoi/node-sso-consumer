@@ -25,24 +25,24 @@ pnpm prod:down    # arrêter
 pnpm prod:reset   # arrêter ET supprimer le volume de la base
 ```
 
-| | adresse |
-| --- | --- |
+|               | adresse               |
+| ------------- | --------------------- |
 | l'application | http://127.0.0.1:7020 |
-| phpMyAdmin | http://127.0.0.1:7021 |
+| phpMyAdmin    | http://127.0.0.1:7021 |
 
 Les deux comptes prêtés :
 
-| adresse | mot de passe | droits |
-| --- | --- | --- |
-| `julien@example.test` | `julien` | `read:note` |
-| `admin@example.test` | `admin` | aucun, mais `isRoot` |
+| adresse               | mot de passe | droits               |
+| --------------------- | ------------ | -------------------- |
+| `julien@example.test` | `julien`     | `read:note`          |
+| `admin@example.test`  | `admin`      | aucun, mais `isRoot` |
 
 Les mots de passe ne sont pas stockés ainsi. L'annuaire porte un `passwordHash` scrypt,
 produit par `hashPassword` de la librairie et jamais écrit à la main :
 
 ```ts
-import { hashPassword } from '@gestionpratique/node-sso-consumer'
-console.log(await hashPassword('julien'))
+import { hashPassword } from "@gestionpratique/node-sso-consumer";
+console.log(await hashPassword("julien"));
 ```
 
 Les paramètres voyagent dans le hash - `scrypt$N$r$p$sel$clé` - donc un enregistrement
@@ -52,10 +52,10 @@ Les paramètres voyagent dans le hash - `scrypt$N$r$p$sel$clé` - donc un enregi
 
 Deux tables, et aucune n'est une session.
 
-| table | ce qu'elle porte |
-| --- | --- |
-| `app_settings` | le mot de passe qui scelle le cookie, et le nom du cookie. **Deux lignes** |
-| `notes` | les données de cette application, la seule chose qu'elle ait jamais possédée |
+| table          | ce qu'elle porte                                                             |
+| -------------- | ---------------------------------------------------------------------------- |
+| `app_settings` | le mot de passe qui scelle le cookie, et le nom du cookie. **Deux lignes**   |
+| `notes`        | les données de cette application, la seule chose qu'elle ait jamais possédée |
 
 Il n'y a **pas** de table de comptes ni de colonne de mot de passe, même ici où les
 comptes sont ceux de l'application : ils sont prêtés à la librairie sous forme de liste,

@@ -1,4 +1,4 @@
-import { createXcoreBridge } from '@gestionpratique/node-sso-consumer'
+import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 
 /**
  * The bridge, in `mode: "local"` - the one thing this POC exists to prove.
@@ -20,7 +20,7 @@ import { createXcoreBridge } from '@gestionpratique/node-sso-consumer'
 export const xcore = createXcoreBridge({
   // The whole subject of this POC. Nothing else in this file would change if it
   // said `"sso"` except the two lines below, which would then be real.
-  mode: 'local',
+  mode: "local",
 
   // ── REQUIRED, AND NEVER CALLED ──────────────────────────────────────────────
   //
@@ -31,7 +31,7 @@ export const xcore = createXcoreBridge({
   //
   // Worth writing down rather than working around: an application that only ever
   // stands in has to invent two values it does not have.
-  provider: { baseUrl: 'https://provider.invalid:13001' },
+  provider: { baseUrl: "https://provider.invalid:13001" },
 
   session: {
     // `secure: false` because this POC is published over plain HTTP on a port: a
@@ -42,14 +42,19 @@ export const xcore = createXcoreBridge({
     // `app_settings`, the second is `sso_local` - its own name, distinct from
     // `sso_<clientId>`, so a machine that runs this offline and then pairs it does
     // not open one cookie with the other's password.
-    cookie: { secure: false, sameSite: 'lax', maxAgeDays: 30 },
+    cookie: { secure: false, sameSite: "lax", maxAgeDays: 30 },
   },
 
   // `loginPath` is read ONLY here, and it is what makes this mode usable: with no
   // portal to send anybody to, a reader without a session has to land on a page of
   // THIS application. The screen is the application's - a library cannot render one -
   // and it posts to `/api/auth/sso/sign-in`.
-  routes: { basePath: '/api/auth', afterLogin: '/', loginPath: '/login' },
+  // `signUp: true` OUVRE `/api/auth/sso/sign-up`, et c'est un opt-in exprès : prêter
+  // `di.accounts.create` ne suffit pas. Une application peut le prêter pour un écran
+  // d'administration et ne rien vouloir d'ouvert sur internet - une route qui
+  // apparaîtrait dès que `create` existe serait une inscription publique que
+  // personne n'a demandée.
+  routes: { basePath: "/api/auth", afterLogin: "/", loginPath: "/login", signUp: true },
 
   di: {
     // Never called in this mode. Written as a refusal rather than as an empty
@@ -57,10 +62,10 @@ export const xcore = createXcoreBridge({
     // signing with nothing and failing three files away as a `401`.
     hmac: {
       getCredential: () => {
-        throw new Error('[poc] nothing signs in local mode: there is no provider to sign to')
+        throw new Error("[poc] nothing signs in local mode: there is no provider to sign to");
       },
       setCredential: () => {
-        throw new Error('[poc] nothing signs in local mode: there is no provider to sign to')
+        throw new Error("[poc] nothing signs in local mode: there is no provider to sign to");
       },
     },
 
@@ -74,49 +79,22 @@ export const xcore = createXcoreBridge({
 
     // ── THE DIRECTORY, AND THE WHOLE OF WHAT THIS MODE NEEDS ──────────────────
     //
-    // A LIST, and nothing more. No sign-in function to write, no password comparison
-    // and no form handling: the login is the library's work, exactly as it is in
-    // `"sso"`. What is lent is the DIRECTORY, never the procedure - which is what
-    // stops a second, hand-written login drifting away from the real one.
+    // FOUR FUNCTIONS over a table, and nothing above them. No sign-in function to
+    // write, no password comparison and no form handling: the login is the library's
+    // work, exactly as it is in `"sso"`. What is lent is the ACCESS, never the
+    // procedure - which is what stops a second, hand-written login drifting away
+    // from the real one.
     //
-    // The passwords are HASHED, scrypt, produced by the library's own `hashPassword`
-    // and never written by hand:
+    // It used to be an ARRAY here, and that was the ceiling: a directory written as
+    // a literal cannot be added to without a deploy, and a scrypt hash typed into a
+    // source file is no better protected than the clear password it replaced. What
+    // makes the hash mean something is `app_sso_accounts`, and a table is read
+    // through a function.
     //
-    //   import { hashPassword } from '@gestionpratique/node-sso-consumer'
-    //   console.log(await hashPassword('julien'))
-    //
-    // The parameters travel inside the hash, so a record written today stays
-    // verifiable after they are raised.
-    //
-    // What is written is thin, and the library fills the rest out to the exact shape
-    // `/sso/me` answers: `id` derived from the email so a cookie survives a restart,
-    // `displayName` composed as `PRÉNOM NOM`, `profile` complete with its nulls,
-    // permissions namespaced, and the `_sso_user_<email>` group.
-    local_accounts: [
-      {
-        email: 'julien@example.test',
-        // hashPassword('julien')
-        passwordHash: 'scrypt$16384$8$1$y7JJNN14RY1ZHqSnn7c62Q$2eB9l5nxA8sovoichyC1Ay1AUqzVaEXxRb3aHdn012o',
-        firstName: 'Julien',
-        lastName: 'Example',
-        // Namespaced or not: `read:note` becomes `<app>:read:note`, and a value that
-        // already carries its prefix is left alone.
-        permissions: ['read:note'],
-      },
-      {
-        email: 'admin@example.test',
-        // hashPassword('admin')
-        passwordHash: 'scrypt$16384$8$1$yFRnQa8sB1nGvGe3fKpfiw$A-S-gEgk_y7TIamVQku_hubcTH4KlYz2wLicuzbXDAU',
-        firstName: 'Admin',
-        lastName: 'Example',
-        // Empty, and `isRoot` instead: x-core answers `isRoot: true` for an account
-        // that passes everything, and `can()` reads it before looking at the list.
-        // Reproducing it here is what makes a screen tested as root behave the same
-        // way in production.
-        permissions: [],
-        isRoot: true,
-      },
-    ],
+    // The password never crosses this line. `xcore.accounts.signUp` takes one,
+    // hashes it, and hands `create` a record - so the scrypt format lives in exactly
+    // one place.
+    accounts,
 
     // HOW this application says "refused". The library decides WHETHER and WHY and
     // calls this with the refusal already settled.
@@ -126,14 +104,14 @@ export const xcore = createXcoreBridge({
     // 302 carries a body and no `Location`, and the browser sits where it is.
     errors: (refusal, _req, res) => {
       if (refusal.redirectTo) {
-        res.statusCode = 302
-        res.setHeader('location', refusal.redirectTo)
-        res.end()
-        return
+        res.statusCode = 302;
+        res.setHeader("location", refusal.redirectTo);
+        res.end();
+        return;
       }
-      throw createError({ statusCode: refusal.status, statusMessage: refusal.message })
+      throw createError({ statusCode: refusal.status, statusMessage: refusal.message });
     },
   },
 
   logger: console,
-})
+});

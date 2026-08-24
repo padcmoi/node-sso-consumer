@@ -1,58 +1,100 @@
 <script setup lang="ts">
-import type { SsoMe } from '@gestionpratique/node-sso-consumer'
+import type { SsoMe } from "@gestionpratique/node-sso-consumer";
 
 /**
- * The page behind the guard.
+ * La page derrière le garde.
  *
- * NOTHING IS REDIRECTED FROM HERE. The server middleware already sent a browser with
- * no session to `/login`, before a byte of this page was rendered - so a page that IS
- * rendering has passed that guard. A second router on top of the first disagrees with
- * it at exactly the moment a session ends.
+ * RIEN N'EST REDIRIGÉ D'ICI. Le middleware serveur a déjà renvoyé un navigateur sans
+ * session sur `/login`, avant qu'un octet de cette page soit rendu - donc une page qui
+ * S'AFFICHE a passé ce garde. Un second routeur au-dessus du premier finit toujours
+ * par le contredire, exactement au moment où une session se termine.
  *
- * There is no realtime half either, and that is not an omission: the socket bridges
- * to a provider, and in this mode there is none. A right changed in the directory
- * lands on the NEXT request instead of within seconds, because the library re-reads
- * the account on every one of them.
+ * Il n'y a pas non plus de moitié navigateur, et ce n'est pas un oubli : la socket
+ * ponte vers un fournisseur, et il n'y en a pas. Un droit changé en base arrive donc
+ * à la requête SUIVANTE au lieu d'arriver en quelques secondes.
  */
-const { data: session } = await useFetch<SsoMe>('/api/auth/session')
-const { data: notes } = await useFetch<{ reader: string; notes: { id: number; title: string; body: string }[] }>(
-  '/api/notes',
-)
+interface NotesAnswer {
+  reader: string;
+  notes: { id: number; title: string; body: string; owner: string }[];
+}
+
+const { data: session } = await useFetch<{ data: SsoMe }>("/api/auth/session");
+const { data: notes, error: notesError } = await useFetch<NotesAnswer>("/api/notes");
+
+const me = computed(() => session.value?.data ?? null);
+const refused = computed(() => (notesError.value as { statusCode?: number } | null)?.statusCode ?? null);
 
 async function logout() {
-  await $fetch('/api/auth/logout', { method: 'POST' })
-  window.location.assign('/login')
+  await $fetch("/api/auth/logout", { method: "POST" });
+  window.location.assign("/login");
 }
 </script>
 
 <template>
-  <div>
-    <h1>Session tenue par la librairie</h1>
-    <p class="muted">
-      Aucun fournisseur n'a été appelé. Le compte ci-dessous a été relu depuis l'annuaire prêté, à cette
-      requête, comme il l'est à chacune.
-    </p>
+  <div class="space-y-8">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="space-y-1">
+        <h1 class="text-2xl font-semibold text-white">{{ me?.user.displayName || "Session" }}</h1>
+        <p class="text-sm text-slate-400">{{ me?.user.email }}</p>
+      </div>
+      <UButton color="neutral" variant="subtle" icon="i-lucide-log-out" @click="logout">Se déconnecter</UButton>
+    </div>
 
-    <h2>Le compte, à la forme que x-core répondrait</h2>
-    <pre>{{ JSON.stringify(session, null, 2) }}</pre>
+    <div class="grid gap-4 sm:grid-cols-3">
+      <UCard :ui="{ body: 'space-y-1' }">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Annuaire</p>
+        <p class="text-sm font-medium text-white">app_sso_accounts</p>
+        <p class="text-xs text-slate-500">relu à chaque requête</p>
+      </UCard>
+      <UCard :ui="{ body: 'space-y-1' }">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Droits</p>
+        <p class="text-sm font-medium text-white">{{ me?.permissions.global.length ?? 0 }}</p>
+        <p class="text-xs text-slate-500">{{ me?.permissions.isRoot ? "isRoot : passe tout" : "liste explicite" }}</p>
+      </UCard>
+      <UCard :ui="{ body: 'space-y-1' }">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Fournisseur</p>
+        <p class="text-sm font-medium text-white">aucun</p>
+        <p class="text-xs text-slate-500">ni appairage ni socket</p>
+      </UCard>
+    </div>
 
-    <h2>Les données de l'application, derrière <code>read:note</code></h2>
-    <p v-if="notes" class="muted">Lues pour {{ notes.reader }}.</p>
-    <table v-if="notes">
-      <tbody>
-        <tr v-for="note in notes.notes" :key="note.id">
-          <td><strong>{{ note.title }}</strong><br /><span class="muted">{{ note.body }}</span></td>
-        </tr>
-      </tbody>
-    </table>
+    <section class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">
+        Les données de l'application, derrière <code class="text-primary-400">read:note</code>
+      </h2>
 
-    <h2>Ce qu'il n'y a pas en base</h2>
-    <p class="muted">
-      Ni table de comptes, ni colonne de mot de passe, ni table de sessions. Deux tables seulement :
-      <code>app_settings</code>, où la librairie garde le mot de passe qui scelle le cookie, et
-      <code>notes</code>, qui sont les données de cette application.
-    </p>
+      <UAlert
+        v-if="refused"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-lock"
+        :title="`Refusé (${refused})`"
+        description="Ce compte n'a pas read:note. La session est pourtant bien ouverte - c'est exactement la séparation que ce mode doit reproduire."
+      />
 
-    <p style="margin-top: 2rem"><button @click="logout">Se déconnecter</button></p>
+      <div v-else-if="notes" class="space-y-2">
+        <p class="text-xs text-slate-500">Lues pour {{ notes.reader }}.</p>
+        <UCard v-for="note in notes.notes" :key="note.id" :ui="{ body: 'space-y-1' }">
+          <p class="text-sm font-medium text-white">{{ note.title }}</p>
+          <p class="text-sm text-slate-400">{{ note.body }}</p>
+          <p class="font-mono text-[11px] text-slate-600">owner = {{ note.owner }}</p>
+        </UCard>
+      </div>
+    </section>
+
+    <section class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">Le compte, à la forme que x-core répondrait</h2>
+      <pre class="overflow-x-auto rounded-lg border border-white/10 bg-slate-900/60 p-4 font-mono text-xs text-slate-300">{{
+        JSON.stringify(me, null, 2)
+      }}</pre>
+    </section>
+
+    <UAlert
+      color="neutral"
+      variant="subtle"
+      icon="i-lucide-database"
+      title="Ce qu'il n'y a pas en base"
+      description="Ni table de sessions, ni mot de passe en clair. Trois tables : app_sso_settings, où la librairie garde le mot de passe qui scelle le cookie ; app_sso_accounts, l'annuaire et la cible de clé étrangère ; notes, les données de cette application."
+    />
   </div>
 </template>

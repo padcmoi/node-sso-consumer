@@ -1,30 +1,36 @@
-import mysql from 'mysql2/promise'
-import type { Pool, RowDataPacket } from 'mysql2/promise'
+import "reflect-metadata";
+import { DataSource } from "typeorm";
+import { AppSettingEntity, NoteEntity, SsoAccountEntity } from "./entities";
 
-let pool: Pool | undefined
+/**
+ * The connection, built once per process.
+ *
+ * `synchronize: true`, and it is a POC decision rather than a recommendation: the
+ * schema is derived from the entities at boot, so there is no migration to write by
+ * hand - which is the rule anyway, since only `migration:generate` should ever
+ * produce one. A real deployment turns this off and runs generated migrations.
+ */
+let source: DataSource | undefined;
 
-export function useDb() {
-  if (!pool) {
-    const config = useRuntimeConfig()
-    pool = mysql.createPool({
+export async function useSource() {
+  if (!source) {
+    const config = useRuntimeConfig();
+    source = new DataSource({
+      type: "mariadb",
       host: config.db.host,
       port: Number(config.db.port),
-      user: config.db.user,
+      username: config.db.user,
       password: config.db.password,
       database: config.db.name,
-      waitForConnections: true,
-      connectionLimit: 5,
-      charset: 'utf8mb4_general_ci',
-    })
+      charset: "utf8mb4_general_ci",
+      synchronize: true,
+      logging: false,
+      entities: [AppSettingEntity, SsoAccountEntity, NoteEntity],
+    });
   }
-  return pool
+  if (!source.isInitialized) await source.initialize();
+  return source;
 }
 
-export async function dbSelect<T extends RowDataPacket>(sql: string, params: unknown[] = []) {
-  const [rows] = await useDb().query<T[]>(sql, params)
-  return rows
-}
-
-export async function dbExecute(sql: string, params: unknown[] = []) {
-  await useDb().query(sql, params)
-}
+export const useRepo = async <T extends object>(entity: Parameters<DataSource["getRepository"]>[0]) =>
+  (await useSource()).getRepository<T>(entity);

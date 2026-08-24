@@ -1,92 +1,110 @@
 <script setup lang="ts">
 /**
- * The sign-in screen, and the ONE thing this application owns about signing in.
+ * L'écran de connexion, et la SEULE chose que cette application possède du login.
  *
- * The screen is the application's because a library cannot render a page: it belongs
- * to this design, this framework, this language. Everything behind it is the
- * library's - comparing the password against the scrypt record, sealing the cookie
- * with the password it minted, and holding the session.
+ * L'écran lui appartient parce qu'une librairie ne peut pas rendre une page : elle
+ * relève de ce design, de ce framework, de cette langue. Tout ce qui est derrière est
+ * à la librairie - comparer le mot de passe contre l'enregistrement scrypt, sceller
+ * le cookie avec le mot de passe qu'elle a tiré, et tenir la session.
  *
- * There is no portal here to send anybody to, which is what `routes.loginPath` is
- * for: the library sends a reader without a session to THIS page, and this page
- * posts to the route the library answers.
+ * Il n'y a pas de portail où envoyer quelqu'un ici, et c'est à ça que sert
+ * `routes.loginPath` : la librairie renvoie un lecteur sans session sur CETTE page,
+ * qui poste sur la route qu'elle answers.
  */
-const email = ref('')
-const password = ref('')
-const busy = ref(false)
-const failed = ref(false)
+const state = reactive({ email: "", password: "" });
+const busy = ref(false);
+const failed = ref(false);
 
 async function submit() {
-  busy.value = true
-  failed.value = false
+  busy.value = true;
+  failed.value = false;
   try {
-    await $fetch('/api/auth/sso/sign-in', {
-      method: 'POST',
-      body: { email: email.value, password: password.value },
-    })
-    // A full navigation rather than a router push: the cookie was just written on
-    // this response, and what has to run next is the SERVER guard with it.
-    window.location.assign('/')
+    await $fetch("/api/auth/sso/sign-in", { method: "POST", body: { ...state } });
+    // Navigation complète plutôt qu'un push du routeur : le cookie vient d'être écrit
+    // sur cette réponse, et ce qui doit tourner ensuite est le garde SERVEUR avec lui.
+    window.location.assign("/");
   } catch {
-    // One message for a wrong address and a wrong password, because the library
-    // answers one refusal for both - telling them apart tells whoever is asking
-    // which addresses exist here.
-    failed.value = true
-    password.value = ''
+    // Un seul message pour une mauvaise adresse et un mauvais mot de passe, parce que
+    // la librairie ne répond qu'un refus pour les deux : les distinguer dirait à qui
+    // demande quelles adresses existent ici.
+    failed.value = true;
+    state.password = "";
   } finally {
-    busy.value = false
+    busy.value = false;
   }
 }
 </script>
 
 <template>
-  <div>
-    <h1>Se connecter</h1>
-    <p class="muted">
-      Aucun fournisseur n'est joignable ici. La librairie répond contre l'annuaire prêté dans
-      <code>server/utils/xcore.ts</code>.
-    </p>
+  <div class="space-y-8">
+    <div class="space-y-2">
+      <h1 class="text-2xl font-semibold text-white">Se connecter</h1>
+      <p class="text-sm text-slate-400">
+        Aucun fournisseur n'est joignable ici. La librairie répond contre la table
+        <code class="rounded bg-white/5 px-1 py-0.5 text-xs text-slate-300">app_sso_accounts</code>.
+      </p>
+    </div>
 
-    <form style="margin-top: 1.5rem; max-width: 22rem" @submit.prevent="submit">
-      <label>
-        <span>Adresse</span>
-        <input v-model="email" type="email" autocomplete="username" required />
-      </label>
-      <label>
-        <span>Mot de passe</span>
-        <input v-model="password" type="password" autocomplete="current-password" required />
-      </label>
-      <p v-if="failed" class="error">Adresse ou mot de passe incorrect.</p>
-      <button type="submit" :disabled="busy || !email || !password">
-        {{ busy ? 'Vérification...' : 'Entrer' }}
-      </button>
-    </form>
+    <UCard :ui="{ body: 'space-y-4' }" class="max-w-md">
+      <UForm :state="state" class="space-y-4" @submit="submit">
+        <UFormField label="Adresse" name="email" required>
+          <UInput v-model="state.email" type="email" autocomplete="username" icon="i-lucide-mail" class="w-full" />
+        </UFormField>
 
-    <h2>Les deux comptes prêtés</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Adresse</th>
-          <th>Mot de passe</th>
-          <th>Droits</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>julien@example.test</code></td>
-          <td><code>julien</code></td>
-          <td><code>read:note</code></td>
-        </tr>
-        <tr>
-          <td><code>admin@example.test</code></td>
-          <td><code>admin</code></td>
-          <td>aucun, mais <code>isRoot</code></td>
-        </tr>
-      </tbody>
-    </table>
-    <p class="muted">
-      Les mots de passe ne sont pas stockés ainsi : l'annuaire porte un <code>passwordHash</code> scrypt, et la
-      comparaison est celle de la librairie.
-    </p>
+        <UFormField label="Mot de passe" name="password" required>
+          <UInput v-model="state.password" type="password" autocomplete="current-password" icon="i-lucide-lock" class="w-full" />
+        </UFormField>
+
+        <UAlert
+          v-if="failed"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="Adresse ou mot de passe incorrect"
+        />
+
+        <div class="flex items-center gap-3">
+          <UButton type="submit" :loading="busy" :disabled="!state.email || !state.password" icon="i-lucide-log-in">
+            Entrer
+          </UButton>
+          <UButton to="/register" variant="ghost" color="neutral" trailing-icon="i-lucide-arrow-right"> Créer un compte </UButton>
+        </div>
+      </UForm>
+    </UCard>
+
+    <div class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">Les deux comptes semés au premier démarrage</h2>
+
+      <div class="overflow-hidden rounded-lg border border-white/10">
+        <table class="w-full text-sm">
+          <thead class="bg-white/5 text-xs uppercase tracking-wide text-slate-400">
+            <tr>
+              <th class="px-4 py-2 text-left font-medium">Adresse</th>
+              <th class="px-4 py-2 text-left font-medium">Mot de passe</th>
+              <th class="px-4 py-2 text-left font-medium">Droits</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-white/5">
+            <tr>
+              <td class="px-4 py-2 font-mono text-xs">julien@example.test</td>
+              <td class="px-4 py-2 font-mono text-xs">julien</td>
+              <td class="px-4 py-2"><UBadge color="primary" variant="subtle" size="sm">read:note</UBadge></td>
+            </tr>
+            <tr>
+              <td class="px-4 py-2 font-mono text-xs">admin@example.test</td>
+              <td class="px-4 py-2 font-mono text-xs">admin</td>
+              <td class="px-4 py-2"><UBadge color="warning" variant="subtle" size="sm">isRoot</UBadge></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-xs text-slate-500">
+        Les mots de passe ne sont pas stockés ainsi. La table porte un
+        <code class="rounded bg-white/5 px-1 py-0.5 text-slate-300">password_scrypt</code> produit par la librairie, et le semis
+        l'a écrit en appelant <code class="rounded bg-white/5 px-1 py-0.5 text-slate-300">signUp</code> - aucun hash n'est écrit à
+        la main nulle part.
+      </p>
+    </div>
   </div>
 </template>

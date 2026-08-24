@@ -1,81 +1,91 @@
-import type { RowDataPacket } from 'mysql2/promise'
+import { NoteEntity, SsoAccountEntity, type NoteRow, type SsoAccountRow } from "./entities";
 
 /**
- * Two tables, and neither is a session.
- *
- * `app_settings`  this application's key/value shelf, which the library uses
- * `notes`         its OWN data, which is the only thing it ever owned
- *
- * There is no `users` table and no `password_hash` column even HERE, where the
- * accounts are this application's own. They are lent to the library as a list, and
- * the library compares, seals and holds the session - so what would go in a users
- * table has nowhere to be. And there is no `sessions` table, because a session row
- * is precisely what cannot honour a revocation: it would still be valid.
- *
- * `app_settings` holds exactly two rows in this mode - the password that seals the
- * cookie and the name of the cookie - where a paired application holds twenty. That
- * difference is the whole of what the pairing brings, said as data.
- */
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS app_settings (
-    \`key\` VARCHAR(190) NOT NULL PRIMARY KEY,
-    \`type\` ENUM('string','number','boolean','array','object','null') NOT NULL,
-    \`value\` LONGTEXT NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-
-  `CREATE TABLE IF NOT EXISTS notes (
-    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    title VARCHAR(190) NOT NULL,
-    body TEXT NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-]
-
-const DEMO_NOTES = [
-  ['Ce que la table ne contient pas', 'Ni compte, ni mot de passe, ni session. La liste est prêtée à la librairie.'],
-  ['Le mode local', "Aucun fournisseur n'est appelé. La session est réelle, le cookie est scellé, les gardes refusent."],
-  ['Le cookie', 'sso_local, scellé avec le mot de passe tiré au premier démarrage et gardé dans app_settings.'],
-]
-
-async function waitForDb() {
-  for (let attempt = 1; attempt <= 60; attempt++) {
-    try {
-      await dbSelect('SELECT 1')
-      return
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-    }
-  }
-  throw new Error('database unreachable')
-}
-
-async function seed() {
-  const rows = await dbSelect<RowDataPacket>('SELECT COUNT(*) AS total FROM notes')
-  if (Number(rows[0]?.total ?? 0) > 0) return
-
-  for (const [title, body] of DEMO_NOTES) {
-    await dbExecute('INSERT INTO notes (title, body) VALUES (?, ?)', [title, body])
-  }
-}
-
-/**
- * The schema, built ONCE, and awaited by everything that needs it.
+ * The schema and the seed, done ONCE and awaited by everything that needs them.
  *
  * A memoised promise rather than a plugin others rely on running first. Nitro calls
  * its plugins in filename order but does NOT await them, so an `async` one returns a
  * promise nobody holds and the next plugin starts while the first is still working.
- * The library's boot reads `app_settings` immediately, so it has to wait for this.
+ * The library's boot reads `app_sso_settings` immediately, so it has to wait.
+ *
+ * The schema itself comes from the entities - `synchronize: true` in `db.ts`.
  */
-let building: Promise<void> | null = null
+
+/**
+ * The two accounts this POC signs in with, seeded on an empty table.
+ *
+ * THE HASH IS NOT WRITTEN HERE. `xcore.accounts.signUp` takes a password, hashes it
+ * with the library's own `hashPassword` and hands `di.accounts.create` a record - so
+ * the scrypt format lives in one place. A seed that pasted a hash literal would be
+ * the very thing this task removed.
+ */
+const SEED = [
+  {
+    email: "julien@example.test",
+    password: "julien",
+    firstName: "Julien",
+    lastName: "Example",
+    // Namespaced or not: `read:note` becomes `<app>:read:note`, and a value that
+    // already carries its prefix is left alone.
+    permissions: ["read:note"],
+  },
+  {
+    email: "admin@example.test",
+    password: "admin",
+    firstName: "Admin",
+    lastName: "Example",
+    // Empty, and `isRoot` instead: x-core answers `isRoot: true` for an account that
+    // passes everything, and `can()` reads it before looking at the list.
+    permissions: [],
+    isRoot: true,
+  },
+];
+
+const NOTES = [
+  ["Ce que la table ne contient pas", "Ni session, ni mot de passe en clair. Le hash est produit par la librairie."],
+  ["Le mode local", "Aucun fournisseur n'est appelé. La session est réelle, le cookie est scellé, les gardes refusent."],
+  ["La clé étrangère", "notes.owner pointe sur app_sso_accounts.id, la même cible dans les deux modes."],
+];
+
+async function waitForDb() {
+  for (let attempt = 1; attempt <= 60; attempt++) {
+    try {
+      await useSource();
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+  throw new Error("database unreachable");
+}
+
+async function seed() {
+  const accounts = await useRepo<SsoAccountRow>(SsoAccountEntity);
+  if ((await accounts.count()) === 0) {
+    for (const account of SEED) await xcore.accounts.signUp(account);
+    console.info(`[poc] seeded ${SEED.length} local account(s) through xcore.accounts.signUp`);
+  }
+
+  const notes = await useRepo<NoteRow>(NoteEntity);
+  if ((await notes.count()) > 0) return;
+
+  // Owned by the first account, which is what makes the foreign key real rather
+  // than declared: these rows cannot exist without a row in `app_sso_accounts`.
+  const owner = await accounts.findOne({ where: { email: SEED[0]!.email } });
+  if (!owner) return;
+
+  for (const [title, body] of NOTES) {
+    await notes.save(notes.create({ owner: owner.id, title: title!, body: body! }));
+  }
+}
+
+let building: Promise<void> | null = null;
 
 export function schemaReady() {
   building ??= (async () => {
-    await waitForDb()
-    for (const statement of SCHEMA) await dbExecute(statement)
-    await seed()
-  })()
+    await waitForDb();
+    await seed();
+  })();
 
-  return building
+  return building;
 }
