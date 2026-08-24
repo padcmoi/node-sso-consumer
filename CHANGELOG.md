@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-24
+
+- Delete `packages/`, and the two tarballs of `0.1.1` and `0.1.2` it held. They existed because the library had no registry to install from, so a POC pointed at a file path and the packed artefact had to be committed next to the source it was packed from - which means a binary in git that goes stale the moment anything is edited, and two versions of it sitting there proves the point. The library is on npm since `0.1.3`, so the reason is gone. The four POC still declare `file:../../packages/...0.1.1.tgz` and their install breaks until they are pointed at the registry
+
 ## [0.1.5] - 2026-08-24
 
 - Say the real polling intervals. `02-protocol-realtime.md` gave `3 s` for all three topics; only `me-changed` declares that, and `me-signed-out` and `me-sessions` take x-core's default of `1 s`, with a `500 ms` floor. The error ran in the direction that matters - the end of a session arrives three times faster than the document promised - and it was in the latency table too. Where the figures come from is written down with them now, because they are x-core's current settings rather than promises of the protocol
