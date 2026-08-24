@@ -53,7 +53,7 @@ export const xcore = createXcoreBridge({
   // ON, OR WITHDRAWN. The first key, because it decides every other one.
   //
   // At `false` there is no pairing, no declaration and no socket - AND THIS LIBRARY
-  // STILL AUTHENTICATES, against the accounts lent under `di.local_accounts`. It does
+  // STILL AUTHENTICATES, against the accounts lent under `di.accounts`. It does
   // NOT stand aside: the guards hold, `requirePermissions` refuses a missing right,
   // and the session that comes out has exactly the shape x-core answers.
   //
@@ -130,7 +130,7 @@ export const xcore = createXcoreBridge({
 | `onAccount(userId, me)`     | what the provider pushed | nothing            | a permission changes          |
 | `onSignedOut(userId)`       | the account              | nothing            | the session is over           |
 | `errors(refusal, req, res)` | a decided refusal        | nothing, or throws | every refusal                 |
-| `local_accounts`            | -                        | a list             | read only at `mode: "local"`  |
+| `accounts`                  | -                        | a list             | read only at `mode: "local"`  |
 
 `errors` is optional and is where a refusal is SPOKEN. The library decides whether and
 why - it is the only thing that talks to the provider - and hands the whole conclusion
@@ -138,7 +138,7 @@ over: the status, the code, the sentence, and the address to send a browser to w
 there is one. Answer however the framework wants, on `res` or by throwing; the throw
 travels untouched. Lend nothing and the library writes the plain answer itself.
 
-`local_accounts` is a DIRECTORY, not a procedure: a list of accounts, and no sign-in
+`accounts` is ACCESS to a directory, not a procedure: four functions over the table the application keeps its accounts in, and no sign-in
 function to write. See [`mode`](../../../README.md#mode---x-core-answers-or-this-library-stands-in-for-it).
 
 The signing is not written here either: this library holds

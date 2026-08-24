@@ -19,7 +19,7 @@ One object, at construction, through `createXcoreBridge`.
 ```
 mode          "sso" or "local": WHICH DIRECTORY answers. The first key, because it
               decides every other one. Required, no default.
-              At "local" the library still authenticates, against di.local_accounts.
+              At "local" the library still authenticates, against di.accounts.
 
 provider      { baseUrl, frontUrl?, realtimeUrl?, portalUrl? }
               baseUrl is the API WITH ITS PORT, and the one address an integrator
@@ -64,8 +64,12 @@ hmac.deleteCredential?(clientId)      optional
 environment.load()                    everything, in one read, before anything else
 environment.save(values)              upsert what is given, leave the rest alone
 
-local_accounts?                       a LIST, read only at mode: "local". A record
-                                      carries passwordHash - scrypt, from hashPassword
+accounts?                             ACCESS to the directory, read only at
+                                      mode: "local". Four functions:
+  .findByEmail(email)                 the sign-in read
+  .findById(id)                       the per-request read, from the cookie's id
+  .create?(record)                    optional. Receives an ALREADY HASHED record
+  .update?(id, patch)                 optional
 errors?(refusal, req, res)            how THIS application says "refused"
 onAccount?(userId, me)                what live pushed
 onSignedOut?(userId)                  the session is over
@@ -90,11 +94,15 @@ sessionOf(req, res)              the same, keeping the pair and the account id
 logout(req, res)                 close at x-core, clear the cookie, answer where to go
 jar(req, res)                    read and write this exchange's cookies
 
-middleware.routes()              the six routes, and a pass-through for anything else
+middleware.routes()              the seven routes, and a pass-through for anything else
 middleware.requireSession()      nothing behind it is served without an account
 middleware.requirePermissions()  refuse unless every action is held
 middleware.errors()              the last handler of the chain
 middleware.account(req, res, …)  for a handler that ASKS rather than sits behind one
+
+accounts.signUp({ …, password }) create one and sign them in. HASHES: the password
+                                 never reaches di.accounts
+accounts.update(id, { password }) change one. Hashes when a password is given
 
 realtime.ticket(accessToken)     mint one: 32 bytes, 30 seconds, single use
 realtime.attach(server)          hang the bridge on an existing HTTP server
@@ -106,6 +114,32 @@ permissions(req) actions(req) can(req, a) canAll(…) canAny(…) assert(…)
 `sessionOf` is the whole of the server side in one call: it reads the sealed cookie, asks x-core, rotates when the access token has expired, seals the new pair back, compares `portail` against `global`, and answers the account as [session.json](session.json) or `null` when the session is over. **It never caches.**
 
 `start()` not throwing is deliberate rather than lax. A boot that died because a token was spent, because the broker was not up yet or because the provider was still starting would take the whole application with it, including the pages that have nothing to do with the SSO and including whatever an operator would use to look at the problem.
+
+## The helpers it exports beside the bridge
+
+```
+hashPassword(password)          scrypt$N$r$p$salt$key. The parameters TRAVEL inside
+                                the record, so raising them later leaves what is
+                                already stored verifiable
+verifyPassword(password, rec)   false for everything that is not a match, including a
+                                malformed record: a sign-in that throws on a bad row
+                                is a 500 where the honest answer is a refusal
+isPasswordHash(value)           whether a string is one of ours
+
+accountIdOf(record)             the id this library composes - `local-<sha256(email)>`
+                                when a record names none - for a store writing rows
+
+XcoreMode                       "sso" | "local"
+XcoreAccountStore               the four access functions of di.accounts
+StandInAccount                  what a record carries
+```
+
+The pair is exported TOGETHER and never one of the two. An application that creates an
+account has to produce exactly what this library will later read, and asking it to
+reproduce the format and the scrypt parameters by hand is asking for the day they drift
+apart - which does not fail loudly, it fails as every password being wrong at once.
+That is also why `xcore.accounts.signUp` exists: it takes a password and hands
+`di.accounts.create` a record already hashed.
 
 ## How it plugs in
 
@@ -125,7 +159,7 @@ The browser half is not optional in spirit: an application that skips it has no 
 
 Decide anything about the application's own data. The gate it declares says who may come in at all; who may touch which invoice is the application's business, and always was.
 
-Own a login page, a user table, a password, a reset flow or a session table. Those are what it replaces, not what it wraps. At `mode: "local"` it authenticates against a lent list, and even there the application owns only the SCREEN: the comparison, the seal and the session are the library's.
+Own a login page, a user table, a password, a reset flow or a session table. Those are what it replaces, not what it wraps. At `mode: "local"` it authenticates against a lent directory, and even there the application owns only the SCREEN: the comparison, the seal and the session are the library's.
 
 Open a Redis or a database. It is handed two functions for the credential and two for the store, and knows nothing else about either. It **does** open the broker connection, because a propagation queue carries credentials and no consuming application should have to wire one for something it never reads itself.
 

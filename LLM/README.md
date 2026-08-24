@@ -1,6 +1,6 @@
 # Installing `@gestionpratique/node-sso-consumer` - instructions for an AI agent
 
-Describes **0.1.7**. If `package.json` in this package says a different version, stop and
+Describes **0.2.0**. If `package.json` in this package says a different version, stop and
 say so rather than guessing: this file is followed literally, so a drifted copy is worse
 than none.
 
@@ -42,7 +42,7 @@ Violating any of these produces something that appears to work and is wrong.
 5. **A relay must send `x-forwarded-for`.** The library reads it off the raw headers
    itself. Without it every session is filed under the relay's address.
 6. **`mode: "local"` does not let anything through.** It authenticates against
-   `di.local_accounts`, or it shuts every door. It is not a bypass.
+   `di.accounts`, or it shuts every door. It is not a bypass.
 7. **The provider's `baseUrl` carries its PORT.** See trap 1 - this one has bitten twice.
 8. **Build the bridge once per process**, not once per module evaluation. See trap 2.
 9. **Never read `process.env` from inside library configuration you place in a bundled
@@ -53,30 +53,50 @@ Violating any of these produces something that appears to work and is wrong.
 
 ## 3. What the library gives you
 
-### Six HTTP routes, mounted in one call
+### Seven HTTP routes, mounted in one call
 
 `middleware.routes()` answers these and passes everything else through. `<base>` is
 `routes.basePath`, default `/api/auth`.
 
-| method | path                     | what it does                                |
-| ------ | ------------------------ | ------------------------------------------- |
-| GET    | `<base>/sso/start`       | sends the browser to the login window       |
-| GET    | `<base>/sso/callback`    | exchanges the code, seals the session       |
-| POST   | `<base>/logout`          | closes at the provider, clears the cookie   |
-| GET    | `<base>/session`         | the account, or `null`                      |
-| POST   | `<base>/realtime-ticket` | a single-use ticket for the browser socket  |
-| POST   | `<base>/sso/sign-in`     | local sign-in, read ONLY at `mode: "local"` |
+| method | path                     | what it does                                          |
+| ------ | ------------------------ | ----------------------------------------------------- |
+| GET    | `<base>/sso/start`       | sends the browser to the login window                 |
+| GET    | `<base>/sso/callback`    | exchanges the code, seals the session                 |
+| POST   | `<base>/logout`          | closes at the provider, clears the cookie             |
+| GET    | `<base>/session`         | the account, or `null`                                |
+| POST   | `<base>/realtime-ticket` | a single-use ticket for the browser socket            |
+| POST   | `<base>/sso/sign-in`     | local sign-in, read ONLY at `mode: "local"`           |
+| POST   | `<base>/sso/sign-up`     | create then sign in. OFF unless `routes.signUp: true` |
 
 ### The methods you will actually call
 
 ```
 xcore.start()                          at boot. NEVER THROWS, returns a result
-xcore.middleware.routes()              the six routes above
+xcore.middleware.routes()              the seven routes above
 xcore.middleware.requireSession()      nothing behind it is served without an account
 xcore.middleware.requirePermissions()  refuses unless every action is held
 xcore.sessionOf(req, res)              the account, or null. Asks the provider EVERY time
 xcore.realtime.attach(server)          hook the socket bridge onto an existing HTTP server
+
+# mode: "local" only - the application's own directory
+xcore.accounts.signUp({ …, password })  create one and sign them in. HASHES with
+                                        scrypt: the password never reaches the store
+xcore.accounts.update(id, { password })  change one. Hashes when a password is given
 ```
+
+At `mode: "local"` the application lends `di.accounts` - FOUR ACCESS FUNCTIONS over
+whatever table it keeps its accounts in, never a `login` or a `register`:
+
+```
+findByEmail(email)   the sign-in read
+findById(id)         the per-request read, from the id inside the sealed cookie
+create?(record)      optional. Receives a record this library has ALREADY hashed
+update?(id, patch)   optional
+```
+
+The password never crosses that line, and that is the point: `verifyPassword` reads a
+format and a set of scrypt parameters, and anything writing them elsewhere has to
+reproduce both.
 
 ### The two entry points
 
@@ -145,7 +165,7 @@ const HELD = "__myAppXcoreBridge";
 const runtime = globalThis as unknown as Record<string, ReturnType<typeof createXcoreBridge> | undefined>;
 
 export const xcore = (runtime[HELD] ??= createXcoreBridge({
-  // "sso": the provider answers. "local": authenticate against di.local_accounts,
+  // "sso": the provider answers. "local": authenticate against di.accounts,
   // or shut every door if none were lent. NOT a bypass. Required, no default.
   mode: "sso",
 
@@ -253,7 +273,7 @@ const run = (handler: ReturnType<typeof xcore.middleware.routes>, req: IncomingM
 export default defineEventHandler(async (event) => {
   const { req, res } = event.node;
 
-  // The six routes. Answering nothing means this was not one of them.
+  // The seven routes. Answering nothing means this was not one of them.
   await run(xcore.middleware.routes(), req, res);
   if (res.writableEnded) return;
 

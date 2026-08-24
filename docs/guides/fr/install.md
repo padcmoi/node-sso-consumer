@@ -51,7 +51,7 @@ createXcoreBridge({
   //
   // À `false` il n'y a pas d'appairage, pas de déclaration et pas de socket - ET CETTE
   // LIBRAIRIE AUTHENTIFIE QUAND MÊME, contre les comptes prêtés sous
-  // `di.local_accounts`. Elle ne s'écarte PAS : les gardes tiennent,
+  // `di.accounts`. Elle ne s'écarte PAS : les gardes tiennent,
   // `requirePermissions` refuse un droit qui manque, et la session qui en sort a
   // exactement la forme que x-core répond.
   //
@@ -149,7 +149,7 @@ if (!started.ok) console.error(`[app] le SSO ne sert pas (${started.status}) : $
 
 | `status`       | Ce que ça signifie                                                                                                                        |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `ready`        | sert : soit appairé et déclaré, soit en doublure contre `di.local_accounts`                                                               |
+| `ready`        | sert : soit appairé et déclaré, soit en doublure contre `di.accounts`                                                                     |
 | `not-paired`   | pas de jeton d'installation, un jeton refusé par le fournisseur - **dans ses propres mots** - ou l'interrupteur éteint sans rien de prêté |
 | `not-declared` | le fournisseur n'a pas été informé de la façon dont cette application se branche                                                          |
 

@@ -19,7 +19,7 @@ Un objet, à la construction, via `createXcoreBridge`.
 ```
 mode          "sso" ou "local" : QUEL ANNUAIRE répond. La première clé, parce
               qu'elle décide toutes les autres. Obligatoire, sans défaut.
-              À "local" la librairie authentifie quand même, contre di.local_accounts.
+              À "local" la librairie authentifie quand même, contre di.accounts.
 
 provider      { baseUrl, frontUrl?, realtimeUrl?, portalUrl? }
               baseUrl est l'API AVEC SON PORT, et la seule adresse qu'un intégrateur
@@ -65,9 +65,12 @@ hmac.deleteCredential?(clientId)      facultatif
 environment.load()                    tout, en une lecture, avant toute chose
 environment.save(values)              upsert ce qui est donné, laisse le reste
 
-local_accounts?                       une LISTE, lue seulement à mode: "local". Un
-                                      enregistrement porte passwordHash - scrypt,
-                                      produit par hashPassword
+accounts?                             l'ACCÈS à l'annuaire, lu seulement à
+                                      mode: "local". Quatre fonctions :
+  .findByEmail(email)                 la lecture de connexion
+  .findById(id)                       la relecture par requête, depuis le cookie
+  .create?(record)                    facultatif. Reçoit un record DÉJÀ HACHÉ
+  .update?(id, patch)                 facultatif
 errors?(refusal, req, res)            comment CETTE application dit « refusé »
 onAccount?(userId, me)                ce que live a poussé
 onSignedOut?(userId)                  la session est terminée
@@ -92,11 +95,15 @@ sessionOf(req, res)              pareil, en gardant le couple et l'id du compte
 logout(req, res)                 fermer chez x-core, effacer le cookie, répondre où aller
 jar(req, res)                    lire et écrire les cookies de cet échange
 
-middleware.routes()              les six routes, et un passe-plat pour tout le reste
+middleware.routes()              les sept routes, et un passe-plat pour tout le reste
 middleware.requireSession()      rien derrière n'est servi sans compte
 middleware.requirePermissions()  refuse sauf si chaque action est détenue
 middleware.errors()              le dernier gestionnaire de la chaîne
 middleware.account(req, res, …)  pour un handler qui DEMANDE au lieu d'être enveloppé
+
+accounts.signUp({ …, password }) en créer un et le connecter. HACHE : le mot de passe
+                                 n'atteint jamais di.accounts
+accounts.update(id, { password }) en modifier un. Hache si un mot de passe est donné
 
 realtime.ticket(accessToken)     en frapper un : 32 octets, 30 secondes, usage unique
 realtime.attach(server)          accrocher le bridge sur un serveur HTTP existant
@@ -108,6 +115,34 @@ permissions(req) actions(req) can(req, a) canAll(…) canAny(…) assert(…)
 `sessionOf` est tout le côté serveur en un appel : il lit le cookie scellé, demande à x-core, fait tourner le couple si l'access token a expiré, re-scelle le nouveau, compare `portail` à `global`, et répond le compte sous la forme de [session.json](session.json) ou `null` si la session est terminée. **Il ne met jamais en cache.**
 
 Que `start()` ne lève pas est délibéré plutôt que laxiste. Un démarrage qui mourrait parce qu'un jeton a été dépensé, parce que le broker n'était pas encore levé ou parce que le fournisseur démarrait encore emporterait toute l'application avec lui, y compris les pages qui n'ont rien à voir avec le SSO et y compris ce qu'un opérateur utiliserait pour regarder le problème.
+
+## Les utilitaires qu'elle exporte à côté du pont
+
+```
+hashPassword(password)          scrypt$N$r$p$sel$clé. Les paramètres VOYAGENT dans
+                                l'enregistrement, donc les monter plus tard laisse
+                                vérifiable ce qui est déjà stocké
+verifyPassword(password, rec)   faux pour tout ce qui n'est pas une correspondance, y
+                                compris un enregistrement malformé : une connexion qui
+                                lève sur une ligne abîmée est un 500 là où la réponse
+                                honnête est un refus
+isPasswordHash(value)           si une chaîne est des nôtres
+
+accountIdOf(record)             l'id que cette librairie compose - `local-<sha256(email)>`
+                                quand un enregistrement n'en nomme pas - pour un
+                                magasin qui écrit ses lignes
+
+XcoreMode                       "sso" | "local"
+XcoreAccountStore               les quatre fonctions d'accès de di.accounts
+StandInAccount                  ce qu'un enregistrement porte
+```
+
+La paire est exportée ENSEMBLE et jamais l'une des deux. Une application qui crée un
+compte doit produire exactement ce que cette librairie relira, et lui demander de
+reproduire le format et les paramètres scrypt à la main, c'est demander le jour où les
+deux divergent - ce qui n'échoue pas bruyamment mais se manifeste par tous les mots de
+passe faux d'un coup. C'est aussi pour ça que `xcore.accounts.signUp` existe : il prend
+un mot de passe et passe à `di.accounts.create` un enregistrement déjà haché.
 
 ## Comment elle se branche
 
@@ -127,7 +162,7 @@ La moitié navigateur n'est pas facultative dans l'esprit : une application qui 
 
 Décider quoi que ce soit sur les données de l'application. La barrière qu'elle déclare dit qui peut entrer tout court ; qui peut toucher quelle facture est l'affaire de l'application, et l'a toujours été.
 
-Posséder une page de connexion, une table d'utilisateurs, un mot de passe, un parcours de réinitialisation ou une table de sessions. C'est ce qu'elle remplace, pas ce qu'elle enveloppe. À `mode: "local"` elle authentifie contre une liste prêtée, et même là l'application ne possède que l'ÉCRAN : la comparaison, le scellement et la session sont à la librairie.
+Posséder une page de connexion, une table d'utilisateurs, un mot de passe, un parcours de réinitialisation ou une table de sessions. C'est ce qu'elle remplace, pas ce qu'elle enveloppe. À `mode: "local"` elle authentifie contre un annuaire prêté, et même là l'application ne possède que l'ÉCRAN : la comparaison, le scellement et la session sont à la librairie.
 
 Ouvrir un Redis ou une base de données. On lui tend deux fonctions pour le credential et deux pour le magasin, et elle ne sait rien d'autre sur l'un ou l'autre. Elle ouvre **en revanche** la connexion au broker, parce qu'une file de propagation transporte des credentials et qu'aucune application consommatrice ne devrait avoir à en câbler une pour quelque chose qu'elle ne lit jamais elle-même.
 

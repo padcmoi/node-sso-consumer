@@ -57,29 +57,50 @@ provider: { baseUrl: "https://x-core.example.test:13001" },
 
 At `"local"` there is no pairing, no declaration and no socket - and **the library
 still authenticates**, against the directory the application lends it under
-`di.local_accounts`. It does not stand aside: the guards hold, `requirePermissions`
+`di.accounts`. It does not stand aside: the guards hold, `requirePermissions`
 still refuses a right that is missing, and the session it hands back has exactly the
 shape x-core answers, `permissions.portail` included and empty.
 
 There are two states and no third:
 
-| `mode`    | `di.local_accounts` | What happens                                                     |
-| --------- | ------------------- | ---------------------------------------------------------------- |
-| `"sso"`   | ignored             | x-core decides. Unreachable or unpaired: every door shuts, `500` |
-| `"local"` | lent                | this library decides, against that list, at `routes.loginPath`   |
-| `"local"` | nothing             | nobody can ever sign in, so **every door shuts**                 |
+| `mode`    | `di.accounts` | What happens                                                     |
+| --------- | ------------- | ---------------------------------------------------------------- |
+| `"sso"`   | ignored       | x-core decides. Unreachable or unpaired: every door shuts, `500` |
+| `"local"` | lent          | this library decides, against that list, at `routes.loginPath`   |
+| `"local"` | nothing       | nobody can ever sign in, so **every door shuts**                 |
 
 The last row is the one that used to stand aside, and standing aside is exactly what a
 guard must never do: an application nobody had configured served every protected page
 to whoever asked, painted around no account, at the one moment nothing could tell one
 reader from another.
 
-What is lent is a **directory, never a procedure** - a list of accounts, and no sign-in
-function to write. Comparing, sealing the cookie and holding the session are this
-library's work in both modes, which is what makes the mode honest: a screen built
-offline reads `me.profile.city` and `can("read:user")` exactly as it will in
-production. The application still draws the sign-in SCREEN, because a library cannot
-render its page, and it posts to `<basePath>/sso/sign-in`.
+What is lent is **access to a directory, never a procedure** - four functions over
+whatever the application keeps its accounts in:
+
+```ts
+di.accounts = {
+  findByEmail(email), // the sign-in read
+  findById(id),       // the per-request read, from the id inside the cookie
+  create?(record),    // optional. Receives a record this library has already hashed
+  update?(id, patch), // optional
+};
+```
+
+Comparing, hashing, sealing the cookie and holding the session are this library's work
+in both modes, which is what makes the mode honest: a screen built offline reads
+`me.profile.city` and `can("read:user")` exactly as it will in production. The
+application still draws the sign-in SCREEN, because a library cannot render its page,
+and it posts to `<basePath>/sso/sign-in`.
+
+**The password never crosses that line.** `xcore.accounts.signUp({ ..., password })`
+hashes with scrypt and hands `create` a `passwordHash`; `xcore.accounts.update(id, {
+password })` does the same. An application that produced the hash itself would have to
+reproduce the format and the parameters, and the day one of the two moves nothing
+fails loudly - every password is simply wrong at once.
+
+It used to be an ARRAY of accounts, and that was its ceiling: a directory written as a
+literal cannot be added to without a deploy, and a hash typed into a source file is no
+better protected than the clear password it replaced.
 
 **It names a directory, not a level of service**, and the application computes it. The
 line above reads the local one wherever the ecosystem is not up, because that is the
@@ -138,7 +159,7 @@ Every outcome comes back as a value and is said in one loud line in the log:
 
 | `status`       | What it means                                                                                       |
 | -------------- | --------------------------------------------------------------------------------------------------- |
-| `ready`        | serving: either paired and declared, or standing in against `di.local_accounts`                     |
+| `ready`        | serving: either paired and declared, or standing in against `di.accounts`                           |
 | `not-paired`   | no install token, one the provider refused - in its own words - or the switch off with nothing lent |
 | `not-declared` | the provider was not told how this application plugs in                                             |
 
@@ -174,7 +195,7 @@ import { hmacInstance } from "./hmac";
 export const xcore = createXcoreBridge({
   // ON, OR WITHDRAWN, and only the application can say it: this library reads no
   // `process.env`, and a bundler would have frozen the value at build time anyway.
-  // At `false` this library authenticates against `di.local_accounts` instead.
+  // At `false` this library authenticates against `di.accounts` instead.
   mode: NODE_ENV === "production" ? "sso" : "local",
   // ONE x-core, WITH its port: the login window lives on the same names without one
   // and answers 204 to anything, so a mistake here fails silently - which is why the
@@ -220,18 +241,21 @@ it is entered on x-core's console when the pairing code is minted, brought back 
 the pairing, and kept in the application's own store - so **nothing comes from a
 `.env`**, and one place decides what this application is.
 
-## The six routes
+## The seven routes
 
 `xcore.middleware.routes()` carries them and passes through for anything else, so mounting is a single `use`:
 
-| Route                         | What it does                                     |
-| ----------------------------- | ------------------------------------------------ |
-| `GET  <base>/sso/start`       | where the portal's card points                   |
-| `GET  <base>/sso/callback`    | the code comes back, sealed into a session       |
-| `POST <base>/sso/sign-in`     | answers ONLY while standing in, `404` otherwise  |
-| `POST <base>/logout`          | closes THIS application's session, not the SSO's |
-| `GET  <base>/session`         | the account, its details, its rights             |
-| `POST <base>/realtime-ticket` | what the page dials the socket with              |
+| Route                         | What it does                                      |
+| ----------------------------- | ------------------------------------------------- |
+| `GET  <base>/sso/start`       | where the portal's card points                    |
+| `GET  <base>/sso/callback`    | the code comes back, sealed into a session        |
+| `POST <base>/sso/sign-in`     | answers ONLY while standing in, `404` otherwise   |
+| `POST <base>/sso/sign-up`     | creates then signs in. OFF unless `routes.signUp` |
+| `POST <base>/logout`          | closes THIS application's session, not the SSO's  |
+| `GET  <base>/session`         | the account, its details, its rights              |
+| `POST <base>/realtime-ticket` | what the page dials the socket with               |
+
+`sso/sign-up` is opt-in twice over: `mode: "local"`, and `routes.signUp: true`. Lending `di.accounts.create` is deliberately not enough - an application may lend it for an administration screen and want nothing open to the internet, and a route that appeared the moment `create` existed would be a public sign-up on a deployment whose author never read this line. It answers `201` with the account and the cookie, `409` on an address already taken, and `422` below eight characters of password.
 
 `<base>` is `routes.basePath`, `/api/auth` by default - the path x-core's console composes into the callback it records, so an application that configures nothing answers where it was declared.
 

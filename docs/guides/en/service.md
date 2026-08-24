@@ -47,8 +47,14 @@ of x-core on every request and never cached.
 
 ## The file
 
-````ts
-import { createXcoreBridge, type SsoLogger, type StandInAccount, type XcoreBridge } from "@gestionpratique/node-sso-consumer";
+```ts
+import {
+  createXcoreBridge,
+  type SsoLogger,
+  type StandInAccount,
+  type XcoreAccountStore,
+  type XcoreBridge,
+} from "@gestionpratique/node-sso-consumer";
 
 import { credentials } from "../hmac";
 import { settings } from "../settings";
@@ -59,63 +65,49 @@ export interface SsoDeps {
 }
 
 /**
- * THE LOCAL DIRECTORY, read only when `mode` is `"local"`.
+ * ACCESS TO THE LOCAL DIRECTORY, read only when `mode` is `"local"`.
  *
- * In hard, in this file, and deliberately: these are the accounts a screen is built
- * with when the ecosystem is not up. They go nowhere and serve only here - with the
- * switch on this constant is never read.
+ * FOUR FUNCTIONS over the table this application keeps its accounts in, and nothing
+ * above them. The library decides who may in, what a wrong password answers and what a
+ * record has to contain; these say where the rows are. It is the same rule `di.hmac`
+ * and `di.environment` already follow, and neither of those is called "rotate the
+ * credential" either.
  *
- * What is written is THIN. The library fills the rest out to the exact shape x-core
- * answers, so a component sees no difference:
+ * It used to be an ARRAY written into this file, and that was its ceiling: a directory
+ * written as a literal cannot be added to without a deploy, and a scrypt hash typed
+ * into a source file is no better protected than the clear password it replaced. What
+ * makes the hash mean something is a table.
+ *
+ * THE PASSWORD NEVER CROSSES THIS LINE. `xcore.accounts.signUp({ ..., password })`
+ * hashes and hands `create` a record; `xcore.accounts.update(id, { password })` does
+ * the same. An application producing the hash itself would have to reproduce the
+ * format and the scrypt parameters, and the day one of the two moves nothing fails
+ * loudly - every password is simply wrong at once.
+ *
+ * What a record carries is THIN. The library fills the rest out to the exact shape
+ * x-core answers, so a component sees no difference:
  *
  *   `id`           derived from the email when absent, so it is stable from one boot
- *                  to the next - a cookie sealed yesterday opens tomorrow
+ *                  to the next - a cookie sealed yesterday opens tomorrow.
+ *                  `accountIdOf` composes it, for a store writing its own rows
  *   `displayName`  "FIRSTNAME LASTNAME", as x-core composes it
  *   `profile`      complete, with its `null` where nothing is known: `birthDate`,
  *                  `address`, `city`, `postalCode`, `phone1`. A screen reading
  *                  `me.profile.city` renders an empty string, it does not crash
  *   `permissions`  namespaced when they are not already, plus the `_sso_user_<email>`
  *                  group x-core creates for every account
- *
- * The password is HASHED, scrypt, and produced by `hashPassword` - never written by
- * hand. This reverses what this guide used to say: the clear-text argument held only
- * while the directory was a literal in a file, and the same records are meant to move
- * into a table, which is dumped, backed up and opened with a SQL client. A format that
- * is right in one place and not the other is a format nobody can move.
- *
- * ```ts
- * import { hashPassword } from "@gestionpratique/node-sso-consumer";
- * console.log(await hashPassword("julien"));
- * ```
+ *   `isRoot`       passes everything, checked before the list is walked
  */
-const LOCAL_ACCOUNTS = [
-  {
-    id: "julien",
-    email: "julien@example.test",
-    // `await hashPassword("julien")`. The parameters travel with the hash, so a
-    // record written today is still verified after they are raised.
-    passwordHash: "scrypt$16384$8$1$MDEyMzQ1Njc4OWFiY2RlZg$YtynpqNQ8WfUAfUFJ0NsdjFpDxAiDx2VZHa4oO5LRFw",
-    firstName: "Julien",
-    lastName: "Example",
-    // What this account holds. Namespaced or not: `read:user` becomes
-    // `<app>:read:user`, and a value already carrying its prefix is left alone -
-    // which is what lets you write `core:access` when you want to.
-    permissions: ["read:user", "write:user"],
-  },
-  {
-    id: "admin",
-    email: "admin@example.test",
-    // `await hashPassword("admin")`.
-    passwordHash: "scrypt$16384$8$1$prcFfJv54XA3LQh6z_5uaw$Eqt4ZCF0KpYc7dq6FfSUNblf23YCHihj2cZgaEOV-x4",
-    firstName: "Admin",
-    lastName: "Example",
-    // Empty, and `isRoot` instead: x-core answers `isRoot: true` for an account that
-    // passes everything, and `can()` reads it before looking at the list. Reproducing
-    // it here is what makes a screen tested as root behave the same in production.
-    permissions: [],
-    isRoot: true,
-  },
-] satisfies StandInAccount[];
+const accounts = {
+  /** The sign-in read. The address arrives already folded to lower case. */
+  findByEmail: (email: string) => accountStore.findByEmail(email),
+  /** The per-request read, from the id inside the sealed cookie. */
+  findById: (id: string) => accountStore.findById(id),
+  /** Write a record whose `passwordHash` the library has just produced. */
+  create: (account: StandInAccount) => accountStore.insert(account),
+  /** Change one. A patch with no `passwordHash` leaves that column alone. */
+  update: (id: string, patch: Partial<StandInAccount>) => accountStore.patch(id, patch),
+} satisfies XcoreAccountStore;
 
 export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
   createXcoreBridge({
@@ -128,7 +120,7 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
     // is a `401` and the portal.
     //
     // At `false` the SSO is off - AND THE LIBRARY STILL AUTHENTICATES, against the
-    // accounts lent under `di.local_accounts`. It does not stand aside: the guards
+    // accounts lent under `di.accounts`. It does not stand aside: the guards
     // hold, `requirePermissions` refuses a missing right, and the session that comes
     // out has EXACTLY the shape x-core answers - `user`, a complete `profile`,
     // namespaced `permissions.global`, `isRoot`, the groups, and an EMPTY
@@ -236,12 +228,21 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
     // offering anything else. An application that moves this is declared at one
     // address and listens at another.
     //
-    // `loginPath` is read ONLY while standing in: with the switch on, the portal is
-    // the one place anybody signs in and this library renders no login page.
+    // `loginPath` is read ONLY in `"local"`: in `"sso"` the portal is the one place
+    // anybody signs in and this library renders no login page.
+    //
+    // `signUp` OPENS `<base>/sso/sign-up`, and it is opt-in twice over: `"local"`,
+    // and this line. Lending `di.accounts.create` is deliberately not enough - an
+    // application may lend it for an administration screen and want nothing open to
+    // the internet, and a route that appeared the moment `create` existed would be a
+    // public sign-up on a deployment whose author never read this line. It answers
+    // `201` with the account and the cookie, `409` on an address already taken, and
+    // `422` below eight characters of password.
     routes: {
       basePath: "/api/auth",
       afterLogin: "/",
       loginPath: "/login",
+      signUp: false,
     },
 
     // ── THE REALTIME ─────────────────────────────────────────────────────────
@@ -351,20 +352,21 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
 
       // ── THE DIRECTORY, WHEN IT IS NOT x-core ANSWERING ───────────────────
       //
-      // Read ONLY at `mode: "local"`. With the switch on this key is never looked
+      // Read ONLY at `mode: "local"`. In `"sso"` this key is never looked
       // at: who is there is x-core's answer and nothing else can give it.
       //
-      // A LIST, and nothing more. No `signIn` to write, no password comparison, no
-      // form: the login is the library's work, exactly as it is when the switch is
-      // on. What an application lends is the DIRECTORY, never the procedure.
+      // FOUR ACCESS FUNCTIONS over a table, and nothing above them. No `signIn` to
+      // write, no password comparison, no form: the login is the library's work,
+      // exactly as it is in `"sso"`. What an application lends is the ACCESS, never
+      // the procedure.
       //
       // A `signIn` lent instead would be two logins in the ecosystem, a real one and
       // one hand-written in each application, and the second always drifts.
       //
-      // `local_accounts` and not `fakeAccounts`: these accounts really sign somebody
+      // `accounts` and not `fakeAccounts`: these accounts really sign somebody
       // in, really hold a session and are really refused when a right is missing.
       // What changes is where they come from, not what they are worth.
-      local_accounts: LOCAL_ACCOUNTS,
+      accounts,
 
       // ── HOW THIS APPLICATION SAYS "REFUSED" ──────────────────────────────
       //
@@ -416,7 +418,7 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
   });
 
 export type Xcore = ReturnType<typeof createXcore>;
-````
+```
 
 ## Booting it, and shutting it down
 
@@ -449,7 +451,7 @@ await xcore.close();
 | `hmac.deleteCredential(clientId)`    | an identity            | nothing                   | optional, when the provider says it is gone |
 | `environment.load()`                 | nothing                | `Record<string, unknown>` | at every boot, first                        |
 | `environment.save(values)`           | the keys to write      | nothing                   | at pairing, and on every rotation           |
-| `local_accounts`                     | a list                 | -                         | only at `mode: "local"`                     |
+| `accounts`                           | a list                 | -                         | only at `mode: "local"`                     |
 | `errors(refusal, req, res)`          | a decided refusal      | nothing, or throws        | optional, on every refusal                  |
 | `onAccount(userId, me)`              | an account             | nothing                   | optional, when `live` pushes one            |
 | `onSignedOut(userId)`                | an account id          | nothing                   | optional, when a session ends               |

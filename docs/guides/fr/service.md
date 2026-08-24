@@ -25,8 +25,14 @@ Un jeton appartient au x-core qui l'a frappé, et l'adresse de ce x-core est éc
 
 ## Le fichier
 
-````ts
-import { createXcoreBridge, type SsoLogger, type StandInAccount, type XcoreBridge } from "@gestionpratique/node-sso-consumer";
+```ts
+import {
+  createXcoreBridge,
+  type SsoLogger,
+  type StandInAccount,
+  type XcoreAccountStore,
+  type XcoreBridge,
+} from "@gestionpratique/node-sso-consumer";
 
 import { credentials } from "../hmac";
 import { settings } from "../settings";
@@ -37,64 +43,47 @@ export interface SsoDeps {
 }
 
 /**
- * L'ANNUAIRE LOCAL, lu seulement quand `mode` vaut `"local"`.
+ * L'ACCÈS À L'ANNUAIRE LOCAL, lu seulement quand `mode` vaut `"local"`.
  *
- * En dur, dans ce fichier, et c'est voulu : ce sont les comptes avec lesquels on
- * développe un écran sans monter l'écosystème. Ils ne partent nulle part et ne
- * servent qu'ici - à `mode: "sso"` cette constante n'est jamais lue.
+ * QUATRE FONCTIONS sur la table où cette application garde ses comptes, et rien
+ * au-dessus. La librairie décide qui entre, ce que répond un mauvais mot de passe et
+ * ce qu'un enregistrement doit contenir ; celles-ci disent où sont les lignes. C'est
+ * la règle que suivent déjà `di.hmac` et `di.environment`, dont aucune ne s'appelle
+ * « tourner le credential ».
  *
- * Ce qu'on écrit est MINCE. La librairie complète le reste vers la forme exacte
- * qu'x-core répond, si bien qu'un composant ne voit aucune différence :
+ * C'était un TABLEAU écrit dans ce fichier, et c'était son plafond : un annuaire
+ * écrit en littéral ne s'enrichit pas sans redéploiement, et un hash scrypt tapé dans
+ * un fichier source n'est pas mieux protégé que le mot de passe en clair qu'il
+ * remplace. Ce qui donne un sens au hash, c'est une table.
  *
- *   `id`           dérivé de l'email s'il est absent, donc stable d'un démarrage
- *                  à l'autre - un cookie scellé hier s'ouvre demain
+ * LE MOT DE PASSE NE TRAVERSE JAMAIS CETTE LIGNE. `xcore.accounts.signUp({ ...,
+ * password })` hache et passe un enregistrement à `create` ; `xcore.accounts.update(id,
+ * { password })` fait pareil. Une application qui produirait le hash elle-même devrait
+ * reproduire le format et les paramètres scrypt, et le jour où l'un des deux bouge
+ * rien n'échoue bruyamment - tous les mots de passe deviennent faux d'un coup.
+ *
+ * Ce qu'un enregistrement porte est MINCE. La librairie complète le reste à la forme
+ * exacte que x-core répond, donc un composant ne voit aucune différence :
+ *
+ *   `id`           dérivé de l'email s'il est absent, donc stable d'un démarrage à
+ *                  l'autre - un cookie scellé hier s'ouvre demain. `accountIdOf` le
+ *                  compose, pour un magasin qui écrit ses propres lignes
  *   `displayName`  « PRÉNOM NOM », comme x-core le compose
- *   `profile`      complet, avec ses `null` là où on ne sait pas : `birthDate`,
- *                  `address`, `city`, `postalCode`, `phone1`... Un écran qui lit
- *                  `me.profile.city` rend une chaîne vide, il ne plante pas
+ *   `profile`      complet, avec ses `null` là où rien n'est connu
  *   `permissions`  namespacées si elles ne le sont pas déjà, plus le groupe
  *                  `_sso_user_<email>` qu'x-core crée pour chaque compte
- *
- * Le mot de passe est HACHÉ, scrypt, et produit par `hashPassword` - jamais écrit à
- * la main. Ceci renverse ce que ce guide disait : l'argument du clair ne tenait que
- * tant que l'annuaire était un littéral dans un fichier, et ces mêmes enregistrements
- * ont vocation à passer en table - qui se dumpe, se sauvegarde et s'ouvre avec un
- * client SQL. Un format juste à un endroit et faux à l'autre est un format qu'on ne
- * peut pas déplacer.
- *
- * ```ts
- * import { hashPassword } from "@gestionpratique/node-sso-consumer";
- * console.log(await hashPassword("julien"));
- * ```
+ *   `isRoot`       passe tout, vérifié avant que la liste soit parcourue
  */
-const LOCAL_ACCOUNTS = [
-  {
-    id: "julien",
-    email: "julien@example.test",
-    // `await hashPassword("julien")`. Les paramètres voyagent avec le hash, donc un
-    // enregistrement écrit aujourd'hui reste vérifiable après qu'on les ait montés.
-    passwordHash: "scrypt$16384$8$1$MDEyMzQ1Njc4OWFiY2RlZg$YtynpqNQ8WfUAfUFJ0NsdjFpDxAiDx2VZHa4oO5LRFw",
-    firstName: "Julien",
-    lastName: "Example",
-    // Ce que ce compte détient. Namespacées ou non : `read:user` devient
-    // `<app>:read:user`, et une valeur qui porte déjà son préfixe est laissée telle
-    // quelle - c'est ce qui permet d'écrire `core:access` quand on le veut.
-    permissions: ["read:user", "write:user"],
-  },
-  {
-    id: "admin",
-    email: "admin@example.test",
-    // `await hashPassword("admin")`.
-    passwordHash: "scrypt$16384$8$1$prcFfJv54XA3LQh6z_5uaw$Eqt4ZCF0KpYc7dq6FfSUNblf23YCHihj2cZgaEOV-x4",
-    firstName: "Admin",
-    lastName: "Example",
-    // Vide, et `isRoot` à la place : x-core répond `isRoot: true` pour un compte qui
-    // passe tout, et `can()` le lit avant de regarder la liste. Le reproduire ici est
-    // ce qui fait qu'un écran testé en root se comporte pareil en production.
-    permissions: [],
-    isRoot: true,
-  },
-] satisfies StandInAccount[];
+const accounts = {
+  /** La lecture de connexion. L'adresse arrive déjà en minuscules. */
+  findByEmail: (email: string) => accountStore.findByEmail(email),
+  /** La relecture par requête, depuis l'id du cookie scellé. */
+  findById: (id: string) => accountStore.findById(id),
+  /** Écrit un enregistrement dont la librairie vient de produire le `passwordHash`. */
+  create: (account: StandInAccount) => accountStore.insert(account),
+  /** En modifie un. Un patch sans `passwordHash` laisse cette colonne tranquille. */
+  update: (id: string, patch: Partial<StandInAccount>) => accountStore.patch(id, patch),
+} satisfies XcoreAccountStore;
 
 export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
   createXcoreBridge({
@@ -107,7 +96,7 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
     // expiré, ou x-core injoignable, c'est un `401` et le portail.
     //
     // À `false` le SSO est éteint - ET LA LIBRAIRIE AUTHENTIFIE QUAND MÊME, contre les
-    // comptes prêtés sous `di.local_accounts`. Elle ne s'écarte pas : les gardes
+    // comptes prêtés sous `di.accounts`. Elle ne s'écarte pas : les gardes
     // tiennent, `requirePermissions` refuse un droit qui manque, et la session qui en
     // sort a EXACTEMENT la forme de celle que x-core répond - `user`, un `profile`
     // complet, `permissions.global` namespacées, `isRoot`, les groupes, et
@@ -216,13 +205,22 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
     // champ offrant autre chose. Une application qui le déplace est déclarée à une
     // adresse et écoute à une autre.
     //
-    // `loginPath` n'est lu QUE en doublure : avec l'interrupteur allumé, le portail est
-    // le seul endroit où quelqu'un se connecte et cette librairie ne rend aucune page
-    // de connexion.
+    // `loginPath` n'est lu QU'en `"local"` : en `"sso"` le portail est le seul
+    // endroit où quelqu'un se connecte et cette librairie ne rend aucune page de
+    // connexion.
+    //
+    // `signUp` OUVRE `<base>/sso/sign-up`, et c'est un opt-in à deux tours :
+    // `"local"`, et cette ligne. Prêter `di.accounts.create` ne suffit délibérément
+    // pas - une application peut le prêter pour un écran d'administration et ne rien
+    // vouloir d'ouvert sur internet, et une route qui apparaîtrait dès que `create`
+    // existe serait une inscription publique sur un déploiement dont l'auteur n'a
+    // jamais lu cette ligne. Elle répond `201` avec le compte et le cookie, `409` sur
+    // une adresse déjà prise, et `422` en dessous de huit caractères de mot de passe.
     routes: {
       basePath: "/api/auth",
       afterLogin: "/",
       loginPath: "/login",
+      signUp: false,
     },
 
     // ── LE TEMPS RÉEL ────────────────────────────────────────────────────────
@@ -345,10 +343,10 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
       // vrai et un écrit à la main dans chaque application, et le second finit toujours
       // par s'écarter.
       //
-      // `local_accounts` et pas `fakeAccounts` : ces comptes connectent vraiment
+      // `accounts` et pas `fakeAccounts` : ces comptes connectent vraiment
       // quelqu'un, tiennent vraiment une session et sont vraiment refusés quand un droit
       // manque. Ce qui change est d'où ils viennent, pas ce qu'ils valent.
-      local_accounts: LOCAL_ACCOUNTS,
+      accounts,
 
       // ── COMMENT CETTE APPLICATION DIT « REFUSÉ » ─────────────────────────
       //
@@ -400,7 +398,7 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
   });
 
 export type Xcore = ReturnType<typeof createXcore>;
-````
+```
 
 ## Le démarrer, et l'arrêter
 
@@ -429,7 +427,7 @@ await xcore.close();
 | `hmac.deleteCredential(clientId)`    | une identité            | rien                      | facultative, quand le fournisseur dit qu'elle a disparu |
 | `environment.load()`                 | rien                    | `Record<string, unknown>` | à chaque démarrage, en premier                          |
 | `environment.save(values)`           | les clés à écrire       | rien                      | à l'appairage, et à chaque rotation                     |
-| `local_accounts`                     | une liste               | -                         | seulement à `mode: "local"`                             |
+| `accounts`                           | une liste               | -                         | seulement à `mode: "local"`                             |
 | `errors(refusal, req, res)`          | un refus déjà décidé    | rien, ou lève             | facultative, à chaque refus                             |
 | `onAccount(userId, me)`              | un compte               | rien                      | facultative, quand `live` en pousse un                  |
 | `onSignedOut(userId)`                | un id de compte         | rien                      | facultative, quand une session se termine               |

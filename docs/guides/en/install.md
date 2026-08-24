@@ -51,7 +51,7 @@ createXcoreBridge({
   // ON, OR WITHDRAWN. The first key, because it decides every other one.
   //
   // At `false` there is no pairing, no declaration and no socket - AND THIS LIBRARY
-  // STILL AUTHENTICATES, against the accounts lent under `di.local_accounts`. It does
+  // STILL AUTHENTICATES, against the accounts lent under `di.accounts`. It does
   // NOT stand aside: the guards hold, `requirePermissions` refuses a missing right,
   // and the session that comes out has exactly the shape x-core answers.
   //
@@ -166,7 +166,7 @@ if (!started.ok) console.error(`[app] the SSO is not serving (${started.status})
 
 | `status`       | What it means                                                                                           |
 | -------------- | ------------------------------------------------------------------------------------------------------- |
-| `ready`        | serving: either paired and declared, or standing in against `di.local_accounts`                         |
+| `ready`        | serving: either paired and declared, or standing in against `di.accounts`                               |
 | `not-paired`   | no install token, one the provider refused - in **its own words** - or the switch off with nothing lent |
 | `not-declared` | the provider was not told how this application plugs in                                                 |
 
