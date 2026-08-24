@@ -30,7 +30,7 @@ const PROXIED_ROUTES: ReadonlyArray<{ method: string; path: string }> = [
   // and comes back written into `SSO_REDIRECT_URI`.
   { method: 'GET', path: '/api/auth/sso/start' },
   { method: 'GET', path: '/api/auth/sso/callback' },
-  // Only ever reached while the library stands in for x-core. With the switch on
+  // Only ever reached while the library stands in for x-core. In `"sso"`
   // nobody signs in here: the portal does.
   { method: 'POST', path: '/api/auth/sso/sign-in' },
   { method: 'POST', path: '/api/auth/logout' },

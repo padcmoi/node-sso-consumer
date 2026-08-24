@@ -17,8 +17,9 @@ This document used to describe a contract designed **before** any of it was buil
 One object, at construction, through `createXcoreBridge`.
 
 ```
-enabled       ON, or WITHDRAWN. The first key, because it decides every other one.
-              At false the library still authenticates, against di.local_accounts.
+mode          "sso" or "local": WHICH DIRECTORY answers. The first key, because it
+              decides every other one. Required, no default.
+              At "local" the library still authenticates, against di.local_accounts.
 
 provider      { baseUrl, frontUrl?, realtimeUrl?, portalUrl? }
               baseUrl is the API WITH ITS PORT, and the one address an integrator
@@ -63,7 +64,7 @@ hmac.deleteCredential?(clientId)      optional
 environment.load()                    everything, in one read, before anything else
 environment.save(values)              upsert what is given, leave the rest alone
 
-local_accounts?                       a LIST, read only at enabled: false
+local_accounts?                       a LIST, read only at mode: "local"
 errors?(refusal, req, res)            how THIS application says "refused"
 onAccount?(userId, me)                what live pushed
 onSignedOut?(userId)                  the session is over
@@ -123,7 +124,7 @@ The browser half is not optional in spirit: an application that skips it has no 
 
 Decide anything about the application's own data. The gate it declares says who may come in at all; who may touch which invoice is the application's business, and always was.
 
-Own a login page, a user table, a password, a reset flow or a session table. Those are what it replaces, not what it wraps. At `enabled: false` it authenticates against a lent list, and even there the application owns only the SCREEN: the comparison, the seal and the session are the library's.
+Own a login page, a user table, a password, a reset flow or a session table. Those are what it replaces, not what it wraps. At `mode: "local"` it authenticates against a lent list, and even there the application owns only the SCREEN: the comparison, the seal and the session are the library's.
 
 Open a Redis or a database. It is handed two functions for the credential and two for the store, and knows nothing else about either. It **does** open the broker connection, because a propagation queue carries credentials and no consuming application should have to wire one for something it never reads itself.
 

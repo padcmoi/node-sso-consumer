@@ -59,7 +59,7 @@ export interface SsoDeps {
 }
 
 /**
- * THE LOCAL DIRECTORY, read only when `enabled` is false.
+ * THE LOCAL DIRECTORY, read only when `mode` is `"local"`.
  *
  * In hard, in this file, and deliberately: these are the accounts a screen is built
  * with when the ecosystem is not up. They go nowhere and serve only here - with the
@@ -79,7 +79,7 @@ export interface SsoDeps {
  *
  * The password is in the clear and must be: nothing here claims to be secure, and
  * hashing it would suggest otherwise. What protects this list is that it does not
- * exist in production - `enabled: true` never looks at it.
+ * exist in production - `mode: "sso"` never looks at it.
  */
 const LOCAL_ACCOUNTS = [
   {
@@ -133,14 +133,14 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
     // line below turns it on in production and off elsewhere because that is the
     // usual case. Nothing forces it: a development machine that wants the real chain
     // - real pairing, real propagation, a revocation that genuinely arrives over the
-    // socket - writes `enabled: true` and never looks at it again.
+    // socket - writes `mode: "sso"` and never looks at it again.
     //
     // PASSED, NOT READ, and that is this library's rule rather than a detail: it
     // reads no `process.env`. A bundler replaces `process.env.NODE_ENV` with a
     // constant at build time, so a value read from inside a bundled library carries
     // what was true on the machine that built the image rather than what is true at
     // boot. This line sits in the application's own build, which knows.
-    enabled: process.env.NODE_ENV === "production",
+    mode: process.env.NODE_ENV === "production" ? "sso" : "local",
 
     // ── WHERE IT CALLS ───────────────────────────────────────────────────────
     //
@@ -341,7 +341,7 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
 
       // ── THE DIRECTORY, WHEN IT IS NOT x-core ANSWERING ───────────────────
       //
-      // Read ONLY at `enabled: false`. With the switch on this key is never looked
+      // Read ONLY at `mode: "local"`. With the switch on this key is never looked
       // at: who is there is x-core's answer and nothing else can give it.
       //
       // A LIST, and nothing more. No `signIn` to write, no password comparison, no
@@ -439,7 +439,7 @@ await xcore.close();
 | `hmac.deleteCredential(clientId)`    | an identity            | nothing                   | optional, when the provider says it is gone |
 | `environment.load()`                 | nothing                | `Record<string, unknown>` | at every boot, first                        |
 | `environment.save(values)`           | the keys to write      | nothing                   | at pairing, and on every rotation           |
-| `local_accounts`                     | a list                 | -                         | only at `enabled: false`                    |
+| `local_accounts`                     | a list                 | -                         | only at `mode: "local"`                     |
 | `errors(refusal, req, res)`          | a decided refusal      | nothing, or throws        | optional, on every refusal                  |
 | `onAccount(userId, me)`              | an account             | nothing                   | optional, when `live` pushes one            |
 | `onSignedOut(userId)`                | an account id          | nothing                   | optional, when a session ends               |

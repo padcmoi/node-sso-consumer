@@ -65,13 +65,13 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
     // to serve every protected page to whoever asked.
     //
     // It is NOT a "dev mode", it is a switch, and the application computes it. A
-    // development machine that wants the real chain writes `enabled: true` and never
+    // development machine that wants the real chain writes `mode: "sso"` and never
     // looks at it again.
     //
     // PASSED, NOT READ: this library reads no `process.env`. A bundler freezes that
     // value at build time anyway, so read from inside it would carry what was true on
     // the machine that built the image.
-    enabled: NODE_ENV == "production" ? true : false,
+    mode: NODE_ENV === "production" ? "sso" : "local",
 
     // ONE x-core, named by its API WITH its port, and the only address this
     // application writes itself. The login window lives on the same names without the
@@ -148,7 +148,7 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
 | `onAccount(userId, me)`     | what the provider pushed | nothing            | a permission changes          |
 | `onSignedOut(userId)`       | the account              | nothing            | the session is over           |
 | `errors(refusal, req, res)` | a decided refusal        | nothing, or throws | every refusal                 |
-| `local_accounts`            | -                        | a list             | read only at `enabled: false` |
+| `local_accounts`            | -                        | a list             | read only at `mode: "local"`  |
 
 `errors` is optional and is where a refusal is SPOKEN. The library decides whether and
 why - it is the only thing that talks to the provider - and hands the whole conclusion
@@ -157,7 +157,7 @@ there is one. Answer however the framework wants, on `res` or by throwing; the t
 travels untouched. Lend nothing and the library writes the plain answer itself.
 
 `local_accounts` is a DIRECTORY, not a procedure: a list of accounts, and no sign-in
-function to write. See [`enabled`](../../../README.md#enabled---x-core-answers-or-this-library-stands-in-for-it).
+function to write. See [`mode`](../../../README.md#mode---x-core-answers-or-this-library-stands-in-for-it).
 
 The signing is not written here either: this library holds
 `@naskot/node-hmac-auth-core` as its own dependency and builds the signed transport

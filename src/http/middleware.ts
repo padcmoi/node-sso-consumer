@@ -238,8 +238,8 @@ export class SsoMiddleware {
   requireSession() {
     const handler: WebHandler = async (req, res, next) => {
       // The sign-in screen itself is never guarded, or the refusal sends a reader to
-      // a page that refuses them, which redirects to itself. Standing in only: with
-      // the switch on this path means nothing and is guarded like any other.
+      // a page that refuses them, which redirects to itself. Standing in only: in
+      // `"sso"` this path means nothing and is guarded like any other.
       if (this.options.standingIn?.() && pathOf(req) === (this.options.loginPath ?? "/login")) return next();
 
       // NOTHING is served from behind this guard while the bridge is down. Not a

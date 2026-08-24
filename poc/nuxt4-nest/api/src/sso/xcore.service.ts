@@ -27,19 +27,19 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
 
   constructor(settings: SettingsStore, credentials: CredentialsStore) {
     this.bridge = createXcoreBridge({
-      // ── ON, OR WITHDRAWN ──────────────────────────────────────────────────
+      // ── WHICH DIRECTORY ANSWERS ───────────────────────────────────────────
       //
-      // `true` in hard, and deliberately. The usual line is
-      // `NODE_ENV == "production" ? true : false`, which turns the SSO off wherever
-      // the ecosystem is not up - and this POC exists for exactly the opposite
-      // reason: to run the real chain, the real pairing, the real propagation and a
-      // revocation that genuinely arrives over the socket.
+      // `"sso"` in hard, and deliberately. The usual line is
+      // `NODE_ENV === "production" ? "sso" : "local"`, which reads the local
+      // directory wherever the ecosystem is not up - and this POC exists for
+      // exactly the opposite reason: to run the real chain, the real pairing, the
+      // real propagation and a revocation that genuinely arrives over the socket.
       //
-      // At `false` the library does NOT step back: it stands in for x-core against
+      // At `"local"` the library does NOT step back: it stands in for x-core against
       // `di.local_accounts` below. Real sessions, guards that enforce, and a session
       // shaped exactly as the provider answers one - only the answer to "who is
       // this" comes from a list in this file instead of from over there.
-      enabled: true,
+      mode: "sso",
 
       // ── WHERE IT CALLS ────────────────────────────────────────────────────
       //
@@ -102,7 +102,7 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
       // a route moved here without being moved in `server/proxy.config.ts` is a 404
       // from the console that never reaches this process.
       //
-      // `loginPath` is read only while standing in: with the switch on, the portal is
+      // `loginPath` is read only while standing in: in `"sso"`, the portal is
       // the one place anybody signs in.
       routes: { basePath: "/api/auth", afterLogin: "/", loginPath: "/login" },
       realtime: { path: "/_ws/realtime" },
@@ -141,18 +141,18 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
           save: (values) => settings.upsertAll(values),
         },
 
-        // ── L'ANNUAIRE LOCAL, LU SEULEMENT À `enabled: false` ──────────────
+        // ── L'ANNUAIRE LOCAL, LU SEULEMENT À `mode: "local"` ───────────────
         //
         // A LIST, and nothing more. No sign-in function, no password comparison, no
-        // form: the login is the library's work, exactly as it is when the switch is
-        // on. What is lent here is the DIRECTORY, never the procedure.
+        // form: the login is the library's work, exactly as it is in
+        // `"sso"`. What is lent here is the DIRECTORY, never the procedure.
         //
         // The library fills the rest out to the exact shape x-core answers, so a
         // screen reading `me.profile.city` renders here and renders there.
         //
         // The password is in the clear and must be: nothing here claims to be
         // secure, and hashing it would suggest otherwise. What protects this list is
-        // that it is never read with the switch on.
+        // that it is never read in `"sso"`.
         local_accounts: [],
 
         // ── NOTHING IS LENT FOR THE REFUSALS, AND THAT IS THE NEST ANSWER ──

@@ -129,7 +129,7 @@ pnpm prod:reset   # supprime le volume : l'appairage est perdu, il faut un nouve
 
 ## Sans x-core
 
-`enabled: false` dans `src/sso/runtime.ts` : la librairie ne se retire pas, elle
+`mode: "local"` dans `src/sso/runtime.ts` : la librairie ne se retire pas, elle
 **remplace** x-core contre `di.local_accounts`. Vraies sessions, guards qui refusent,
 session de la forme exacte que x-core répond. La liste est vide ici ; l'écran est
 [`src/app/login/page.tsx`](src/app/login/page.tsx), et il se connecte par une Server

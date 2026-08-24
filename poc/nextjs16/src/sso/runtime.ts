@@ -60,16 +60,16 @@ const build = (): XcoreRuntime => {
   const credentials = credentialsOf(pool);
 
   const bridge = createXcoreBridge({
-    // ── ON, OR WITHDRAWN ────────────────────────────────────────────────────
+    // ── WHICH DIRECTORY ANSWERS ─────────────────────────────────────────────
     //
-    // `true` in hard, and deliberately. This POC exists to run the real chain: the
+    // `"sso"` in hard, and deliberately. This POC exists to run the real chain: the
     // real pairing, the real propagation and a revocation that genuinely arrives
     // over the socket. Those do not simulate credibly.
     //
-    // At `false` the library does NOT step back: it stands in for x-core against
+    // At `"local"` the library does NOT step back: it stands in for x-core against
     // `di.local_accounts`. Real sessions, guards that enforce, and a session shaped
     // exactly as the provider answers one.
-    enabled: true,
+    mode: "sso",
 
     // The API of ONE x-core, WITH its port. THE PORT IS THE TRAP: the login window
     // lives on the same names without one and answers `204` to anything it does not

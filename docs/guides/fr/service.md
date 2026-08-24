@@ -37,11 +37,11 @@ export interface SsoDeps {
 }
 
 /**
- * L'ANNUAIRE LOCAL, lu seulement quand `enabled` vaut `false`.
+ * L'ANNUAIRE LOCAL, lu seulement quand `mode` vaut `"local"`.
  *
  * En dur, dans ce fichier, et c'est voulu : ce sont les comptes avec lesquels on
  * développe un écran sans monter l'écosystème. Ils ne partent nulle part et ne
- * servent qu'ici - à `enabled: true` cette constante n'est jamais lue.
+ * servent qu'ici - à `mode: "sso"` cette constante n'est jamais lue.
  *
  * Ce qu'on écrit est MINCE. La librairie complète le reste vers la forme exacte
  * qu'x-core répond, si bien qu'un composant ne voit aucune différence :
@@ -57,7 +57,7 @@ export interface SsoDeps {
  *
  * Le mot de passe est en clair et il doit l'être : rien ici ne prétend être sûr,
  * et le hacher donnerait l'illusion inverse. Ce qui protège cette liste est qu'elle
- * n'existe pas en production - `enabled: true` ne la regarde pas.
+ * n'existe pas en production - `mode: "sso"` ne la regarde pas.
  */
 const LOCAL_ACCOUNTS = [
   {
@@ -111,7 +111,7 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
     // le calcule. La ligne ci-dessous l'allume en production et l'éteint ailleurs
     // parce que c'est le cas courant. Rien n'y oblige : une machine de développement
     // qui veut justement la vraie chaîne - appairage réel, propagation réelle, une
-    // révocation qui arrive vraiment par la socket - écrit `enabled: true` et n'y
+    // révocation qui arrive vraiment par la socket - écrit `mode: "sso"` et n'y
     // revient plus.
     //
     // PASSÉE, PAS LUE, et c'est la règle de cette librairie plutôt qu'un détail : elle
@@ -119,7 +119,7 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
     // constante à la construction, donc une valeur lue depuis une librairie embarquée
     // porte ce qui était vrai sur la machine qui a construit l'image plutôt que ce qui
     // est vrai au démarrage. Cette ligne-ci est dans le build de l'application, qui sait.
-    enabled: process.env.NODE_ENV === "production",
+    mode: process.env.NODE_ENV === "production" ? "sso" : "local",
 
     // ── OÙ ELLE APPELLE ──────────────────────────────────────────────────────
     //
@@ -322,12 +322,12 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
 
       // ── L'ANNUAIRE, QUAND CE N'EST PAS x-core QUI RÉPOND ─────────────────
       //
-      // Lu UNIQUEMENT à `enabled: false`. Allumée, cette clé n'est jamais regardée :
+      // Lu UNIQUEMENT à `mode: "local"`. Allumée, cette clé n'est jamais regardée :
       // qui est là est la réponse de x-core et rien d'autre ne peut la donner.
       //
       // UNE LISTE, et rien de plus. Pas de `signIn` à écrire, pas de comparaison de mot
       // de passe, pas de formulaire : le login est le travail de la librairie,
-      // exactement comme il l'est à `enabled: true`. Ce que l'application prête est
+      // exactement comme il l'est à `mode: "sso"`. Ce que l'application prête est
       // l'ANNUAIRE, jamais la procédure.
       //
       // Une fonction `signIn` prêtée à la place serait deux logins dans l'écosystème, un
@@ -418,7 +418,7 @@ await xcore.close();
 | `hmac.deleteCredential(clientId)`    | une identité            | rien                      | facultative, quand le fournisseur dit qu'elle a disparu |
 | `environment.load()`                 | rien                    | `Record<string, unknown>` | à chaque démarrage, en premier                          |
 | `environment.save(values)`           | les clés à écrire       | rien                      | à l'appairage, et à chaque rotation                     |
-| `local_accounts`                     | une liste               | -                         | seulement à `enabled: false`                            |
+| `local_accounts`                     | une liste               | -                         | seulement à `mode: "local"`                             |
 | `errors(refusal, req, res)`          | un refus déjà décidé    | rien, ou lève             | facultative, à chaque refus                             |
 | `onAccount(userId, me)`              | un compte               | rien                      | facultative, quand `live` en pousse un                  |
 | `onSignedOut(userId)`                | un id de compte         | rien                      | facultative, quand une session se termine               |

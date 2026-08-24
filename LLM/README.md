@@ -41,7 +41,7 @@ Violating any of these produces something that appears to work and is wrong.
    not an internal API container's.
 5. **A relay must send `x-forwarded-for`.** The library reads it off the raw headers
    itself. Without it every session is filed under the relay's address.
-6. **`enabled: false` does not let anything through.** It authenticates against
+6. **`mode: "local"` does not let anything through.** It authenticates against
    `di.local_accounts`, or it shuts every door. It is not a bypass.
 7. **The provider's `baseUrl` carries its PORT.** See trap 1 - this one has bitten twice.
 8. **Build the bridge once per process**, not once per module evaluation. See trap 2.
@@ -58,14 +58,14 @@ Violating any of these produces something that appears to work and is wrong.
 `middleware.routes()` answers these and passes everything else through. `<base>` is
 `routes.basePath`, default `/api/auth`.
 
-| method | path                     | what it does                                 |
-| ------ | ------------------------ | -------------------------------------------- |
-| GET    | `<base>/sso/start`       | sends the browser to the login window        |
-| GET    | `<base>/sso/callback`    | exchanges the code, seals the session        |
-| POST   | `<base>/logout`          | closes at the provider, clears the cookie    |
-| GET    | `<base>/session`         | the account, or `null`                       |
-| POST   | `<base>/realtime-ticket` | a single-use ticket for the browser socket   |
-| POST   | `<base>/sso/sign-in`     | local sign-in, read ONLY at `enabled: false` |
+| method | path                     | what it does                                |
+| ------ | ------------------------ | ------------------------------------------- |
+| GET    | `<base>/sso/start`       | sends the browser to the login window       |
+| GET    | `<base>/sso/callback`    | exchanges the code, seals the session       |
+| POST   | `<base>/logout`          | closes at the provider, clears the cookie   |
+| GET    | `<base>/session`         | the account, or `null`                      |
+| POST   | `<base>/realtime-ticket` | a single-use ticket for the browser socket  |
+| POST   | `<base>/sso/sign-in`     | local sign-in, read ONLY at `mode: "local"` |
 
 ### The methods you will actually call
 
@@ -145,9 +145,9 @@ const HELD = "__myAppXcoreBridge";
 const runtime = globalThis as unknown as Record<string, ReturnType<typeof createXcoreBridge> | undefined>;
 
 export const xcore = (runtime[HELD] ??= createXcoreBridge({
-  // true: the provider answers. false: authenticate against di.local_accounts, or
-  // shut every door if none were lent. NOT a bypass.
-  enabled: true,
+  // "sso": the provider answers. "local": authenticate against di.local_accounts,
+  // or shut every door if none were lent. NOT a bypass. Required, no default.
+  mode: "sso",
 
   provider: { baseUrl: ENV.api, frontUrl: ENV.front },
   installToken: ENV.installToken,
@@ -163,7 +163,7 @@ export const xcore = (runtime[HELD] ??= createXcoreBridge({
   },
 
   // basePath is what the console composed the callback from. They must agree.
-  // loginPath is read only at enabled: false.
+  // loginPath is read only at mode: "local".
   routes: { basePath: "/api/auth", afterLogin: "/dashboard" },
 
   // The path the BROWSER dials on this host. Keep the default unless you know why:

@@ -3,7 +3,7 @@ import { LoginForm } from './form'
 /**
  * L'écran de connexion, et SEULEMENT pendant que la librairie remplace x-core.
  *
- * Avec `enabled: true` personne n'atterrit ici : le portail est le seul endroit où
+ * Avec `mode: "sso"` personne n'atterrit ici : le portail est le seul endroit où
  * quelqu'un se connecte, et le guard du serveur custom y envoie un lecteur sans
  * session. Cette page existe parce qu'en doublure il n'y a pas de portail.
  *
@@ -24,7 +24,7 @@ export default function Login() {
 
         <p className="text-xs text-slate-500">
           Ces comptes vivent dans <code className="font-mono">src/sso/runtime.ts</code>. Avec{' '}
-          <code className="font-mono">enabled: true</code>, cet écran n&apos;est jamais atteint.
+          <code className="font-mono">mode: &quot;sso&quot;</code>, cet écran n&apos;est jamais atteint.
         </p>
       </div>
     </main>

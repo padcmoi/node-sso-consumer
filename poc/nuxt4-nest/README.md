@@ -127,7 +127,7 @@ minter un nouveau.
 
 ## Sans x-core
 
-`enabled: false` dans `api/src/sso/xcore.service.ts` : la librairie ne se retire pas,
+`mode: "local"` dans `api/src/sso/xcore.service.ts` : la librairie ne se retire pas,
 elle **remplace** x-core contre `di.local_accounts`. Vraies sessions, guards qui
 refusent, session de la forme exacte que x-core répond - seule la réponse à « qui
 est-ce » vient d'une liste dans ce fichier. La liste est vide ici ; l'écran de

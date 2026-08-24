@@ -62,12 +62,12 @@ createXcoreBridge({
   //
   // CE N'EST PAS UN « MODE DEV », c'est un interrupteur, et c'est l'application qui le
   // calcule. Une machine de développement qui veut la vraie chaîne écrit
-  // `enabled: true` et n'y revient plus.
+  // `mode: "sso"` et n'y revient plus.
   //
   // PASSÉE, PAS LUE : cette librairie ne lit aucun `process.env`. Un bundler fige de
   // toute façon cette valeur à la construction, donc lue de l'intérieur elle porterait
   // ce qui était vrai sur la machine qui a construit l'image.
-  enabled: NODE_ENV == "production" ? true : false,
+  mode: NODE_ENV === "production" ? "sso" : "local",
 
   // UN x-core, nommé par son API AVEC son port, et la seule adresse que cette
   // application écrit elle-même. La fenêtre de connexion vit sur les mêmes noms sans le
@@ -153,7 +153,7 @@ if (!started.ok) console.error(`[app] le SSO ne sert pas (${started.status}) : $
 | `not-paired`   | pas de jeton d'installation, un jeton refusé par le fournisseur - **dans ses propres mots** - ou l'interrupteur éteint sans rien de prêté |
 | `not-declared` | le fournisseur n'a pas été informé de la façon dont cette application se branche                                                          |
 
-`XcoreStartResult` déclare aussi un statut `withdrawn`. **Rien ne le rend.** À `enabled: false` avec un annuaire prêté la réponse est `ready`, et sans rien de prêté c'est `not-paired` - ce membre d'union est un reste de l'époque où l'interrupteur signifiait s'écarter. Brancher sur `ok`, jamais sur cette valeur.
+`XcoreStartResult` déclare aussi un statut `withdrawn`. **Rien ne le rend.** À `mode: "local"` avec un annuaire prêté la réponse est `ready`, et sans rien de prêté c'est `not-paired` - ce membre d'union est un reste de l'époque où l'interrupteur signifiait s'écarter. Brancher sur `ok`, jamais sur cette valeur.
 
 Un démarrage qui mourrait parce qu'un jeton a été dépensé, parce que le broker n'était pas encore levé ou parce que le fournisseur démarrait encore emporterait toute l'application avec lui - y compris les pages qui n'ont rien à voir avec le SSO, et y compris ce qu'un opérateur utiliserait pour regarder le problème. Elle se lève donc, dit ce qui ne marche pas, et se répare par une valeur dans une configuration plutôt que par un conteneur qui ne veut pas rester en vie.
 

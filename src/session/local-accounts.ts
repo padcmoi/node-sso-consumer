@@ -3,7 +3,7 @@ import type { SsoMe, SsoProfile } from "../types.js";
 
 /**
  * A reader this application holds itself, for when the provider is not the one
- * answering - `enabled: false`.
+ * answering - `mode: "local"`.
  *
  * WHAT IS WRITTEN IS THIN, and that is the whole point of this file: an application
  * lends a handful of fields and gets back a session with the exact shape x-core

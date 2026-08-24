@@ -59,12 +59,12 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
     //
     // CE N'EST PAS UN « MODE DEV », c'est un interrupteur, et c'est l'application qui
     // le calcule. Une machine de développement qui veut la vraie chaîne écrit
-    // `enabled: true` et n'y revient plus.
+    // `mode: "sso"` et n'y revient plus.
     //
     // PASSÉE, PAS LUE : cette librairie ne lit aucun `process.env`. Un bundler fige de
     // toute façon cette valeur à la construction, donc lue de l'intérieur elle
     // porterait ce qui était vrai sur la machine qui a construit l'image.
-    enabled: NODE_ENV == "production" ? true : false,
+    mode: NODE_ENV === "production" ? "sso" : "local",
 
     // UN x-core, nommé par son API AVEC son port, et la seule adresse que cette
     // application écrit elle-même. La fenêtre de connexion vit sur les mêmes noms sans
@@ -144,11 +144,11 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
 | `onAccount(userId, me)`     | ce que le fournisseur a poussé | rien          | une permission change            |
 | `onSignedOut(userId)`       | le compte                      | rien          | la session est terminée          |
 | `errors(refusal, req, res)` | un refus déjà décidé           | rien, ou lève | à chaque refus                   |
-| `local_accounts`            | -                              | une liste     | lue seulement à `enabled: false` |
+| `local_accounts`            | -                              | une liste     | lue seulement à `mode: "local"`  |
 
 `errors` est facultative et c'est là qu'un refus est PRONONCÉ. La librairie décide si et pourquoi - c'est la seule chose qui parle au fournisseur - et tend la conclusion entière : le statut, le code, la phrase, et l'adresse où envoyer un navigateur quand il y en a une. Réponds comme le framework veut, sur `res` ou en levant ; le throw voyage intact. Ne rien prêter et la librairie écrit la réponse simple elle-même.
 
-`local_accounts` est un ANNUAIRE, pas une procédure : une liste de comptes, et pas de fonction de connexion à écrire. Voir [`enabled`](../../../README.md#enabled---x-core-answers-or-this-library-stands-in-for-it).
+`local_accounts` est un ANNUAIRE, pas une procédure : une liste de comptes, et pas de fonction de connexion à écrire. Voir [`mode`](../../../README.md#mode---x-core-answers-or-this-library-stands-in-for-it).
 
 La signature n'est pas écrite ici non plus : cette librairie tient `@naskot/node-hmac-auth-core` en dépendance à elle et construit le transport signé elle-même, depuis le hash que `getCredential` rend. Il n'y a donc pas de seconde implémentation du protocole de ce côté pour diverger de celle qui vérifie en face, et aucun secret ne traverse la frontière - un hash est demandé, un hash est rangé.
 

@@ -43,31 +43,31 @@ What this library does NOT do: decide anything about the application's own data.
 gate it declares says who may come in at all; who may touch which invoice is the
 application's business, and always was.
 
-## One switch, and one address
+## One mode, and one address
 
 Two keys carry the whole of what an application decides about this library, and they
 are the first two of the object.
 
 ```ts
-enabled: NODE_ENV == "production" ? true : false,
-provider: { baseUrl: "https://x-core.gestionpratique.ovh:13001" },
+mode: NODE_ENV === "production" ? "sso" : "local",
+provider: { baseUrl: "https://x-core.example.test:13001" },
 ```
 
-### `enabled` - x-core answers, or this library stands in for it
+### `mode` - x-core answers, or this library stands in for it
 
-At `false` there is no pairing, no declaration and no socket - and **the library still
-authenticates**, against the directory the application lends it under
+At `"local"` there is no pairing, no declaration and no socket - and **the library
+still authenticates**, against the directory the application lends it under
 `di.local_accounts`. It does not stand aside: the guards hold, `requirePermissions`
 still refuses a right that is missing, and the session it hands back has exactly the
 shape x-core answers, `permissions.portail` included and empty.
 
 There are two states and no third:
 
-| `enabled` | `di.local_accounts` | What happens                                                     |
+| `mode`    | `di.local_accounts` | What happens                                                     |
 | --------- | ------------------- | ---------------------------------------------------------------- |
-| `true`    | ignored             | x-core decides. Unreachable or unpaired: every door shuts, `500` |
-| `false`   | lent                | this library decides, against that list, at `routes.loginPath`   |
-| `false`   | nothing             | nobody can ever sign in, so **every door shuts**                 |
+| `"sso"`   | ignored             | x-core decides. Unreachable or unpaired: every door shuts, `500` |
+| `"local"` | lent                | this library decides, against that list, at `routes.loginPath`   |
+| `"local"` | nothing             | nobody can ever sign in, so **every door shuts**                 |
 
 The last row is the one that used to stand aside, and standing aside is exactly what a
 guard must never do: an application nobody had configured served every protected page
@@ -76,18 +76,22 @@ reader from another.
 
 What is lent is a **directory, never a procedure** - a list of accounts, and no sign-in
 function to write. Comparing, sealing the cookie and holding the session are this
-library's work in both states, which is what makes the switch honest: a screen built
+library's work in both modes, which is what makes the mode honest: a screen built
 offline reads `me.profile.city` and `can("read:user")` exactly as it will in
 production. The application still draws the sign-in SCREEN, because a library cannot
 render its page, and it posts to `<basePath>/sso/sign-in`.
 
-**It is not a "dev mode", it is a switch**, and the application computes it. The line
-above turns it on in production and off elsewhere because that is the common case: a
-screen being built without the ecosystem behind it, without a token to mint and
-without a broker account. Nothing forces that line - a development machine that wants
-the real chain, real pairing, real propagation and a revocation that genuinely
-arrives over the socket, writes `enabled: true` and never looks at it again. Those
-things do not simulate credibly.
+**It names a directory, not a level of service**, and the application computes it. The
+line above reads the local one wherever the ecosystem is not up, because that is the
+common case: a screen being built without a token to mint and without a broker
+account. Nothing forces that line - a development machine that wants the real chain,
+real pairing, real propagation and a revocation that genuinely arrives over the
+socket, writes `mode: "sso"` and never looks at it again. Those things do not simulate
+credibly.
+
+It used to be a boolean called `enabled`, and the word was wrong: `false` never turned
+anything off, it named the other directory. It is also required now, where `enabled`
+read an absent key as `true` - so a typo in the key name silently chose x-core.
 
 **Passed, not read.** Nothing in here touches `process.env`, and reading it from in
 here would not even be reliable: a bundler - Nitro, Vite, esbuild - replaces
@@ -95,9 +99,9 @@ here would not even be reliable: a bundler - Nitro, Vite, esbuild - replaces
 what was true on the machine that built the image rather than what is true at boot.
 The line above sits in the application's own build, which knows.
 
-Off by mistake in production it does not fall over: it leaves a production offering
-the accounts written in its own source to the internet, or refusing everybody if none
-were lent. That is why it is the first key of the object.
+Left on `"local"` by mistake in production it does not fall over: it leaves a
+production offering the accounts written in its own source to the internet, or
+refusing everybody if none were lent. That is why it is the first key of the object.
 
 ### `provider` - one x-core, one address
 
@@ -138,7 +142,7 @@ Every outcome comes back as a value and is said in one loud line in the log:
 | `not-paired`   | no install token, one the provider refused - in its own words - or the switch off with nothing lent |
 | `not-declared` | the provider was not told how this application plugs in                                             |
 
-`XcoreStartResult` also declares a `withdrawn` status and **nothing returns it**: at `enabled: false` with a directory lent the answer is `ready`, and with nothing lent it is `not-paired`. Branch on `ok`, never on that value.
+`XcoreStartResult` also declares a `withdrawn` status and **nothing returns it**: at `mode: "local"` with a directory lent the answer is `ready`, and with nothing lent it is `not-paired`. Branch on `ok`, never on that value.
 
 A boot that died because a token was spent, because the broker was not up yet or
 because the provider was still starting would take the whole application with it -
@@ -171,7 +175,7 @@ export const xcore = createXcoreBridge({
   // ON, OR WITHDRAWN, and only the application can say it: this library reads no
   // `process.env`, and a bundler would have frozen the value at build time anyway.
   // At `false` this library authenticates against `di.local_accounts` instead.
-  enabled: NODE_ENV == "production" ? true : false,
+  mode: NODE_ENV === "production" ? "sso" : "local",
   // ONE x-core, WITH its port: the login window lives on the same names without one
   // and answers 204 to anything, so a mistake here fails silently - which is why the
   // boot probes the address before declaring anything to it.
@@ -368,7 +372,7 @@ npm run build
 
 ## Notes
 
-- Nothing here reads `process.env`, opens a store or holds a secret. Read env in the service layer and pass plain config - `enabled` included, which is why it is a key of the configuration rather than something this library looks up.
+- Nothing here reads `process.env`, opens a store or holds a secret. Read env in the service layer and pass plain config - `mode` included, which is why it is a key of the configuration rather than something this library looks up.
 - The HMAC runtime is injected whole: this library signs with it and owns no credential of its own.
 - One address is configured, `provider.baseUrl`, and the other three are derived from it. It is required because it is the one whose mistake is silent, which is why the boot probes it before declaring anything to it.
 - The session cookie is sealed AES-256-GCM. The token pair IS the session: no local refresh chain. Changing `session.password` signs everyone out.

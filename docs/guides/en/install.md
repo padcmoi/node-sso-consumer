@@ -60,13 +60,13 @@ createXcoreBridge({
   // serve every protected page to whoever asked.
   //
   // It is NOT a "dev mode", it is a switch, and the application computes it. A
-  // development machine that wants the real chain writes `enabled: true` and never
+  // development machine that wants the real chain writes `mode: "sso"` and never
   // looks at it again.
   //
   // PASSED, NOT READ: this library reads no `process.env`. A bundler freezes that
   // value at build time anyway, so read from inside it would carry what was true on
   // the machine that built the image.
-  enabled: NODE_ENV == "production" ? true : false,
+  mode: NODE_ENV === "production" ? "sso" : "local",
 
   // ONE x-core, named by its API WITH its port, and the only address this
   // application writes itself. The login window lives on the same names without the
@@ -170,7 +170,7 @@ if (!started.ok) console.error(`[app] the SSO is not serving (${started.status})
 | `not-paired`   | no install token, one the provider refused - in **its own words** - or the switch off with nothing lent |
 | `not-declared` | the provider was not told how this application plugs in                                                 |
 
-`XcoreStartResult` also declares a `withdrawn` status. **Nothing returns it.** At `enabled: false` with a directory lent the answer is `ready`, and with nothing lent it is `not-paired` - the union member is left over from when the switch meant standing aside. Branch on `ok`, never on that value.
+`XcoreStartResult` also declares a `withdrawn` status. **Nothing returns it.** At `mode: "local"` with a directory lent the answer is `ready`, and with nothing lent it is `not-paired` - the union member is left over from when the switch meant standing aside. Branch on `ok`, never on that value.
 
 A boot that died because a token was spent, because the broker was not up yet or
 because the provider was still starting would take the whole application with it -

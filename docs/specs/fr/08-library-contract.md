@@ -17,8 +17,9 @@ Ce document décrivait autrefois un contrat conçu **avant** que rien n'en soit 
 Un objet, à la construction, via `createXcoreBridge`.
 
 ```
-enabled       ALLUMÉ, ou DOUBLURE. La première clé, parce qu'elle décide toutes les autres.
-              À false la librairie authentifie quand même, contre di.local_accounts.
+mode          "sso" ou "local" : QUEL ANNUAIRE répond. La première clé, parce
+              qu'elle décide toutes les autres. Obligatoire, sans défaut.
+              À "local" la librairie authentifie quand même, contre di.local_accounts.
 
 provider      { baseUrl, frontUrl?, realtimeUrl?, portalUrl? }
               baseUrl est l'API AVEC SON PORT, et la seule adresse qu'un intégrateur
@@ -64,7 +65,7 @@ hmac.deleteCredential?(clientId)      facultatif
 environment.load()                    tout, en une lecture, avant toute chose
 environment.save(values)              upsert ce qui est donné, laisse le reste
 
-local_accounts?                       une LISTE, lue seulement à enabled: false
+local_accounts?                       une LISTE, lue seulement à mode: "local"
 errors?(refusal, req, res)            comment CETTE application dit « refusé »
 onAccount?(userId, me)                ce que live a poussé
 onSignedOut?(userId)                  la session est terminée
@@ -124,7 +125,7 @@ La moitié navigateur n'est pas facultative dans l'esprit : une application qui 
 
 Décider quoi que ce soit sur les données de l'application. La barrière qu'elle déclare dit qui peut entrer tout court ; qui peut toucher quelle facture est l'affaire de l'application, et l'a toujours été.
 
-Posséder une page de connexion, une table d'utilisateurs, un mot de passe, un parcours de réinitialisation ou une table de sessions. C'est ce qu'elle remplace, pas ce qu'elle enveloppe. À `enabled: false` elle authentifie contre une liste prêtée, et même là l'application ne possède que l'ÉCRAN : la comparaison, le scellement et la session sont à la librairie.
+Posséder une page de connexion, une table d'utilisateurs, un mot de passe, un parcours de réinitialisation ou une table de sessions. C'est ce qu'elle remplace, pas ce qu'elle enveloppe. À `mode: "local"` elle authentifie contre une liste prêtée, et même là l'application ne possède que l'ÉCRAN : la comparaison, le scellement et la session sont à la librairie.
 
 Ouvrir un Redis ou une base de données. On lui tend deux fonctions pour le credential et deux pour le magasin, et elle ne sait rien d'autre sur l'un ou l'autre. Elle ouvre **en revanche** la connexion au broker, parce qu'une file de propagation transporte des credentials et qu'aucune application consommatrice ne devrait avoir à en câbler une pour quelque chose qu'elle ne lit jamais elle-même.
 

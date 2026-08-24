@@ -73,7 +73,7 @@ export interface XcoreInjection {
   environment: XcoreEnvironmentStore;
   /**
    * The readers this application holds ITSELF, for when the provider is not the one
-   * answering - `enabled: false`.
+   * answering - `mode: "local"`.
    *
    * A LIST, and nothing more. No sign-in function to write, no password comparison,
    * no form: the login is this library's work, exactly as it is when the switch is
@@ -93,8 +93,8 @@ export interface XcoreInjection {
    * the way a revocation arrives from x-core - and fills the session out to the exact
    * shape `/sso/me` answers.
    *
-   * Read ONLY at `enabled: false`. With the switch on, this is never looked at: who
-   * is there is x-core's answer and nothing else can give it.
+   * Read ONLY at `mode: "local"`. In `"sso"` this is never looked at: who is there
+   * is x-core's answer and nothing else can give it.
    */
   local_accounts?: StandInAccount[];
   /**
@@ -137,6 +137,14 @@ export interface XcoreInjection {
 }
 
 /**
+ * Which directory answers "who is this".
+ *
+ * Not a level of service: both hold real sessions and both enforce. `"local"` is the
+ * application's own list standing in for the provider, not the provider turned off.
+ */
+export type XcoreMode = "sso" | "local";
+
+/**
  * What this application DECIDES, and what it LENDS. Nothing else.
  *
  * What it IS towards the provider is not here: identity, callback URL, cancel URL,
@@ -148,21 +156,27 @@ export interface XcoreInjection {
  */
 export interface XcoreBridgeOptions {
   /**
-   * ON, OR WITHDRAWN. The first key, because it decides every other one.
+   * WHICH DIRECTORY ANSWERS "who is this". The first key, because it decides every
+   * other one.
    *
-   * At `false` this library WITHDRAWS: no pairing, no declaration, no session, no
-   * socket. `start()` hands back without doing anything, the guards let everything
-   * through, and what signs anybody in is the application's own affair - a hardcoded
-   * login, an account in a table, whatever it had before. It is a decision rather
-   * than a fault: it does not throw and says no more than one line in the log.
+   * `"sso"`      the provider answers. Pairing, declaration, sessions, socket.
+   * `"local"`    this library answers, out of `di.local_accounts`. No pairing, no
+   *              declaration, no broker and no socket, because there is nothing on
+   *              the other side to do any of it with.
    *
-   * IT IS NOT A "DEV MODE", it is a switch, and the application computes it. The
-   * usual line turns it on in production and off elsewhere, because the usual case
-   * is a screen being built without the ecosystem behind it. Nothing forces that
-   * line: a development machine that wants the real chain - real pairing, real
-   * propagation, a revocation that genuinely arrives over the socket - writes
-   * `enabled: true` and never looks at it again. Those things do not simulate
-   * credibly.
+   * NEITHER IS A BYPASS, and that is the thing to read twice. In `"local"` the
+   * library holds real sessions, seals the same cookie, and the guards enforce
+   * exactly as they do in `"sso"` - a missing right is a `403`. What changes is who
+   * is asked, and nothing else. Lending no directory in `"local"` is the one state
+   * where nobody can ever sign in, and every door shuts rather than opening.
+   *
+   * IT WAS A BOOLEAN, `enabled`, and the word was wrong: `false` never turned
+   * anything off, it named the other directory. A key that reads "off" and means
+   * "the local one" is the kind of thing that gets flipped in production by somebody
+   * who thinks it is a feature switch.
+   *
+   * NO DEFAULT. `enabled` treated an absent key as `true`, so a typo in the key name
+   * silently chose the provider. This one is required and the type says so.
    *
    * PASSED, NOT READ, and that is this library's rule rather than a detail: it reads
    * no `process.env`. Read from in here the value would not even be reliable - a
@@ -172,14 +186,15 @@ export interface XcoreBridgeOptions {
    * sits in the application's own build, which knows.
    *
    * ```ts
-   * enabled: NODE_ENV == "production" ? true : false,
+   * mode: NODE_ENV === "production" ? "sso" : "local",
    * ```
    *
-   * OFF BY MISTAKE IN PRODUCTION it does not fall over: it leaves a production
-   * offering its fallback login to the internet, cleanly and without a word. That is
-   * why it is the first key of the object.
+   * Nothing forces that line. An application with no local login of its own writes
+   * `"sso"` in hard, in every environment, and a development machine that wants the
+   * real chain - real pairing, real propagation, a revocation that genuinely arrives
+   * over the socket - does the same. Those things do not simulate credibly.
    */
-  enabled: boolean;
+  mode: XcoreMode;
 
   /**
    * The provider: ONE x-core, named by its API with its port.
@@ -230,7 +245,7 @@ export interface XcoreBridgeOptions {
     /**
      * The application's OWN sign-in screen, used only while standing in.
      *
-     * With the switch on there is no such thing: the portal is the one place anybody
+     * In `"sso"` there is no such thing: the portal is the one place anybody
      * signs in, and this library never renders a login page. Standing in there is no
      * portal, so a reader with no session has to be sent somewhere - and it has to be
      * a page of THIS application, because the screen belongs to its design and its
@@ -322,8 +337,8 @@ export interface XcoreStartResult {
  * What stays the application's: its signer, its own address, and its handlers.
  */
 export class XcoreBridge {
-  /** Whether this library runs at all, as the application decided. */
-  readonly enabled: boolean;
+  /** Which directory answers "who is this", as the application decided. */
+  readonly mode: XcoreMode;
 
   /** The four addresses in use: the API as written, the other three derived. */
   readonly provider: ProviderAddresses;
@@ -370,7 +385,7 @@ export class XcoreBridge {
   private propagation: Awaited<ReturnType<typeof startPropagation>> = null;
 
   constructor(private readonly options: XcoreBridgeOptions) {
-    this.enabled = options.enabled !== false;
+    this.mode = options.mode;
     this.provider = addressesOf(options.provider, options.logger);
 
     this.http = new SsoHttpClient({
@@ -408,7 +423,7 @@ export class XcoreBridge {
     });
 
     this.live =
-      options.live?.enabled === false || !this.enabled
+      options.live?.enabled === false || this.mode === "local"
         ? null
         : new SsoLiveAccounts({
             auth: this.auth,
@@ -430,7 +445,7 @@ export class XcoreBridge {
       // because nothing over there knows it changed. So the upgrade is left alone,
       // the ticket route refuses, and a browser stays on plain reads - which is the
       // honest picture rather than a stream that opens onto nothing.
-      serving: () => this.enabled && this.serving,
+      serving: () => this.mode === "sso" && this.serving,
       logger: options.logger,
     });
 
@@ -558,7 +573,7 @@ export class XcoreBridge {
   }
 
   /**
-   * STANDING IN: the switch is off and this application lent a directory.
+   * STANDING IN: `mode` is `"local"` and this application lent a directory.
    *
    * Not a degraded mode and not a stand-aside. The library holds real sessions, the
    * guards enforce, a missing right is a `403` - only the answer to "who is this"
@@ -568,7 +583,7 @@ export class XcoreBridge {
    * no provider to ask and no directory to read, so nobody can ever sign in.
    */
   get standingIn() {
-    return !this.enabled && (this.options.di.local_accounts?.length ?? 0) > 0;
+    return this.mode === "local" && (this.options.di.local_accounts?.length ?? 0) > 0;
   }
 
   /**
@@ -584,7 +599,7 @@ export class XcoreBridge {
    * nobody it could ever let in.
    */
   get serving() {
-    return this.standingIn || (this.enabled && this.identity.hydrated && this.identity.installed);
+    return this.standingIn || (this.mode === "sso" && this.identity.hydrated && this.identity.installed);
   }
 
   /** What the last `start()` concluded. */
@@ -642,10 +657,10 @@ export class XcoreBridge {
     // the next request, exactly as a revocation from x-core does.
     if (this.standingIn) return this.localSessionOf(req, res);
 
-    // OFF, and nothing lent. Nobody can sign in here at all: there is no provider to
+    // LOCAL, and nothing lent. Nobody can sign in here at all: there is no provider to
     // ask and no directory to read. It is a misconfiguration rather than a signed-out
     // reader, so it throws like every other one.
-    if (!this.enabled) {
+    if (this.mode === "local") {
       throw new SsoError("NOT_CONFIGURED", "This application has no identity provider and no local accounts: nobody can sign in");
     }
 
@@ -829,8 +844,8 @@ export class XcoreBridge {
    * operator looking at it, rather than by a container that will not stay alive.
    */
   async start() {
-    // OFF. Which of the two that means depends on whether a directory was lent.
-    if (!this.enabled) return this.conclude(await this.standIn());
+    // LOCAL. Which of the two that means depends on whether a directory was lent.
+    if (this.mode === "local") return this.conclude(await this.standIn());
 
     try {
       await this.load();
@@ -877,15 +892,15 @@ export class XcoreBridge {
   private async standIn() {
     if (!this.standingIn) {
       this.options.logger?.error?.(
-        "[sso] NOT SERVING: `enabled` is false and no `di.local_accounts` were lent, so there is no provider to ask " +
-          "and no directory to read. Nothing behind a guard is served. Turn the switch on, or lend a directory."
+        '[sso] NOT SERVING: `mode` is "local" and no `di.local_accounts` were lent, so there is no provider to ask ' +
+          'and no directory to read. Nothing behind a guard is served. Set `mode: "sso"`, or lend a directory.'
       );
       return {
         ok: false,
         status: "not-paired",
         paired: false,
         declared: false,
-        reason: "the switch is off and no local accounts were lent",
+        reason: 'mode is "local" and no local accounts were lent',
       } satisfies XcoreStartResult;
     }
 

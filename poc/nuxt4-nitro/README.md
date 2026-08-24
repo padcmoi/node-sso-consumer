@@ -63,7 +63,10 @@ sont rangés dans `app_settings`.
 | `ready`        | appairé et déclaré : le SSO sert                                 |
 | `not-paired`   | pas de jeton, ou un jeton refusé - avec les mots de x-core       |
 | `not-declared` | x-core n'a pas été informé de la façon dont l'app se branche     |
-| `withdrawn`    | `enabled: false` : la librairie s'est retirée, rien n'est cassé  |
+
+En `mode: 'local'` avec un annuaire prêté, le statut est `ready` lui aussi : la librairie
+tient de vraies sessions, elle les tient simplement contre cette liste. Sans annuaire,
+c'est `not-paired` et rien n'est servi derrière un garde.
 
 L'application démarre dans tous les cas. Un démarrage qui mourrait sur un jeton dépensé
 emporterait avec lui les pages qui n'ont rien à voir avec le SSO.

@@ -28,7 +28,7 @@ const INSTALL_PATH = "/api/v1/portal/install";
  */
 const bridgeFor = (provider: ReturnType<typeof stubProvider>, overrides: Partial<Parameters<typeof createXcoreBridge>[0]> = {}) =>
   createXcoreBridge({
-    enabled: true,
+    mode: "sso",
     provider: { baseUrl: API_BASE },
     // Nothing may open a socket in a test: the accounts are followed on demand.
     live: { enabled: false },
@@ -42,7 +42,7 @@ const freshBridge = (provider: ReturnType<typeof stubProvider>, overrides: Recor
   const store = stubEnvironment();
   const hmac = stubHmac(provider);
   const bridge = createXcoreBridge({
-    enabled: true,
+    mode: "sso",
     provider: { baseUrl: API_BASE },
     installToken: "ycsvtsa_the-token",
     live: { enabled: false },
@@ -65,14 +65,14 @@ const LOCAL = [
   { email: "julien@julien.fr", password: "julien", firstName: "Julien", lastName: "Julien", permissions: ["read:user"] },
 ];
 
-describe("off, with a directory or without one", () => {
-  // Off and lending NOTHING is not a stand-aside: there is no provider to ask and no
+describe("local, with a directory or without one", () => {
+  // Local and lending NOTHING is not a stand-aside: there is no provider to ask and no
   // directory to read, so nobody can ever sign in. Serving what sits behind a guard
   // in that state would hand every protected page to whoever asked.
-  it("refuses to serve when it is off and nothing was lent", async () => {
+  it("refuses to serve when it is local and nothing was lent", async () => {
     const provider = stubProvider();
     const bridge = createXcoreBridge({
-      enabled: false,
+      mode: "local",
       provider: { baseUrl: API_BASE },
       installToken: "ycsvtsa_the-token",
       di: { hmac: stubHmac(provider), environment: stubEnvironment() },
@@ -86,9 +86,9 @@ describe("off, with a directory or without one", () => {
     expect(bridge.serving).toBe(false);
   });
 
-  it("shuts every door when it is off and nothing was lent", async () => {
+  it("shuts every door when it is local and nothing was lent", async () => {
     const bridge = createXcoreBridge({
-      enabled: false,
+      mode: "local",
       provider: { baseUrl: API_BASE },
       di: { hmac: stubHmac(stubProvider()), environment: stubEnvironment() },
     });
@@ -105,12 +105,12 @@ describe("off, with a directory or without one", () => {
     expect(res.statusCode).toBe(500);
   });
 
-  // Off WITH a directory is not a degraded mode: real sessions, real guards, and a
+  // Local WITH a directory is not a degraded mode: real sessions, real guards, and a
   // session shaped exactly as the provider answers one.
   it("stands in for the provider when a directory is lent", async () => {
     const provider = stubProvider();
     const bridge = createXcoreBridge({
-      enabled: false,
+      mode: "local",
       provider: { baseUrl: API_BASE },
       di: { hmac: stubHmac(provider), environment: stubEnvironment(), local_accounts: LOCAL },
     });
@@ -125,7 +125,7 @@ describe("off, with a directory or without one", () => {
 
   it("signs a local reader in, and answers the shape the provider answers", async () => {
     const bridge = createXcoreBridge({
-      enabled: false,
+      mode: "local",
       provider: { baseUrl: API_BASE },
       di: { hmac: stubHmac(stubProvider()), environment: stubEnvironment(), local_accounts: LOCAL },
     });
@@ -174,7 +174,7 @@ describe("the addresses, from the one that was written", () => {
   it("refuses a base that is not an address", () => {
     expect(() =>
       createXcoreBridge({
-        enabled: true,
+        mode: "sso",
         provider: { baseUrl: "x-core.example.ovh" },
         di: { hmac: stubHmac(stubProvider()), environment: paired() },
       })
@@ -332,7 +332,7 @@ describe("the boot: read, pair if it must, open the queue, declare", () => {
     const provider = answering();
     const store = stubEnvironment();
     const bridge = createXcoreBridge({
-      enabled: true,
+      mode: "sso",
       provider: { baseUrl: API_BASE },
       installToken: "ycsvtsa_the-token",
       live: { enabled: false },

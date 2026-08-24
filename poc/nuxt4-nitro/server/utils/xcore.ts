@@ -16,25 +16,20 @@ import { createXcoreBridge } from '@gestionpratique/node-sso-consumer'
  * for the same accounts.
  */
 export const xcore = createXcoreBridge({
-  // ── ON, OR WITHDRAWN ────────────────────────────────────────────────────────
+  // ── WHICH DIRECTORY ANSWERS ─────────────────────────────────────────────────
   //
-  // `true` in hard, and deliberately. The usual line is
-  // `NODE_ENV == "production" ? true : false`, which turns the SSO off wherever the
-  // ecosystem is not up - and this POC exists for exactly the opposite reason: to
-  // run the real chain, the real pairing, the real propagation and a revocation that
-  // genuinely arrives over the socket. Those do not simulate credibly, so there is
-  // nothing here to turn off.
+  // `"sso"` in hard, and deliberately. The usual line is
+  // `NODE_ENV === "production" ? "sso" : "local"`, which reads the local directory
+  // wherever the ecosystem is not up - and this POC exists for exactly the opposite
+  // reason: to run the real chain, the real pairing, the real propagation and a
+  // revocation that genuinely arrives over the socket. Those do not simulate
+  // credibly.
   //
-  // At `false` the library withdraws entirely: no pairing, no declaration, no
-  // session, no socket, and every guard lets through. What would sign a reader in
-  // then is this application's own affair - and this one has nothing, on purpose:
-  // the local login it used to carry is what the SSO replaced.
-  //
-  // At `false` the library does NOT step back: it stands in for x-core against
+  // At `"local"` the library does NOT step back: it stands in for x-core against
   // `di.local_accounts` below. Real sessions, guards that enforce, and a session
   // shaped exactly as the provider answers one - only the answer to "who is this"
   // comes from a list in this file instead of from over there.
-  enabled: true,
+  mode: 'sso',
 
   // ── WHERE IT CALLS ──────────────────────────────────────────────────────────
   //
@@ -88,7 +83,7 @@ export const xcore = createXcoreBridge({
     cookie: { secure: false, sameSite: 'lax', maxAgeDays: 30 },
   },
 
-  // `loginPath` is read only while standing in: with the switch on, the portal is
+  // `loginPath` is read only while standing in: in `"sso"`, the portal is
   // the one place anybody signs in and this library never sends a browser to a page
   // of its own. Standing in there is no portal, so a reader with no session goes to
   // THIS application's screen - which posts to `/api/auth/sso/sign-in`.
@@ -124,10 +119,10 @@ export const xcore = createXcoreBridge({
       save: (values) => settings.upsertAll(values),
     },
 
-    // ── L'ANNUAIRE LOCAL, LU SEULEMENT À `enabled: false` ────────────────────
+    // ── L'ANNUAIRE LOCAL, LU SEULEMENT À `mode: 'local'` ─────────────────────
     //
     // A LIST, and nothing more. No sign-in function, no password comparison, no
-    // form: the login is the library's work, exactly as it is when the switch is on.
+    // form: the login is the library's work, exactly as it is in `"sso"`.
     // What is lent here is the DIRECTORY, never the procedure.
     //
     // What is written is thin. The library fills the rest out to the exact shape
