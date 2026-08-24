@@ -76,7 +76,11 @@ beforeEach(() => {
   register(window);
   globals.window = window;
 
-  const document = { get visibilityState() { return visibility; } } as Record<string, unknown>;
+  const document = {
+    get visibilityState() {
+      return visibility;
+    },
+  } as Record<string, unknown>;
   register(document);
   globals.document = document;
 
@@ -88,7 +92,15 @@ beforeEach(() => {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ data: { user: { id: "u1", email: "a@b.c", displayName: "A", avatarUrl: null }, profile: {}, permissions: { global: [], portail: [], isRoot: false, groups: [] } }, resource: "demo" }),
+        json: () =>
+          Promise.resolve({
+            data: {
+              user: { id: "u1", email: "a@b.c", displayName: "A", avatarUrl: null },
+              profile: {},
+              permissions: { global: [], portail: [], isRoot: false, groups: [] },
+            },
+            resource: "demo",
+          }),
       });
     }
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ data: { ticket: "t-1" } }) });

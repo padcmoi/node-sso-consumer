@@ -10,7 +10,7 @@ Framework-agnostic: everything runs on the raw Node `IncomingMessage` / `ServerR
 >
 > It is **proprietary to x-core**, not a general SSO client. It speaks x-core's routes, x-core's HMAC scheme, x-core's `resource:action` catalogue and x-core's realtime protocol - and there is no other implementation of any of them. There is no `client_id`/`client_secret` pair here, no discovery document, no JWKS, no OIDC: the HMAC clientId **is** the SSO identity. Pointed at an OAuth2 or OIDC provider it does not degrade, it simply has nothing to talk to.
 >
-> It also needs an x-core recent enough to serve `POST /api/v1/portal/install`. See [Installing an application](./docs/install.md).
+> It also needs an x-core recent enough to serve `POST /api/v1/portal/install`. See [Installing an application](./docs/guides/en/install.md).
 
 ## It replaces the whole local authentication
 
@@ -132,12 +132,13 @@ behind it. Presented to another it finds nothing.
 
 Every outcome comes back as a value and is said in one loud line in the log:
 
-| `status`       | What it means                                                        |
-| -------------- | -------------------------------------------------------------------- |
-| `withdrawn`    | `enabled: false`. Nothing was asked of anybody, and nothing is wrong |
-| `ready`        | paired and declared: the SSO is serving                              |
-| `not-paired`   | no install token, or one the provider refused - in its own words     |
-| `not-declared` | the provider was not told how this application plugs in              |
+| `status`       | What it means                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------------- |
+| `ready`        | serving: either paired and declared, or standing in against `di.local_accounts`                     |
+| `not-paired`   | no install token, one the provider refused - in its own words - or the switch off with nothing lent |
+| `not-declared` | the provider was not told how this application plugs in                                             |
+
+`XcoreStartResult` also declares a `withdrawn` status and **nothing returns it**: at `enabled: false` with a directory lent the answer is `ready`, and with nothing lent it is `not-paired`. Branch on `ok`, never on that value.
 
 A boot that died because a token was spent, because the broker was not up yet or
 because the provider was still starting would take the whole application with it -
@@ -178,7 +179,7 @@ export const xcore = createXcoreBridge({
   // The ONE value copied by hand, from the screen that mints it. It stays here for
   // the life of the application: what decides whether the pairing happens is the
   // `INSTALLED` key, not the presence of this token.
-  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+  installToken: "EXAMPLE_ONLY_yTgc9Qm2LbVx7Kd0Rf3PnW8sHjA6ZuE4",
   routes: { basePath: "/api/auth", afterLogin: "/" },
 
   // Everything this application LENDS, in one key and nowhere else.
@@ -215,7 +216,7 @@ it is entered on x-core's console when the pairing code is minted, brought back 
 the pairing, and kept in the application's own store - so **nothing comes from a
 `.env`**, and one place decides what this application is.
 
-## The five routes
+## The six routes
 
 `xcore.middleware.routes()` carries them and passes through for anything else, so mounting is a single `use`:
 
@@ -223,6 +224,7 @@ the pairing, and kept in the application's own store - so **nothing comes from a
 | ----------------------------- | ------------------------------------------------ |
 | `GET  <base>/sso/start`       | where the portal's card points                   |
 | `GET  <base>/sso/callback`    | the code comes back, sealed into a session       |
+| `POST <base>/sso/sign-in`     | answers ONLY while standing in, `404` otherwise  |
 | `POST <base>/logout`          | closes THIS application's session, not the SSO's |
 | `GET  <base>/session`         | the account, its details, its rights             |
 | `POST <base>/realtime-ticket` | what the page dials the socket with              |
@@ -341,11 +343,18 @@ if (sso.can("infrastructure:delete-queues")) deleteButton.hidden = false;
 
 ## Integration guides
 
-- [Installing an application](./docs/install.md) - the pairing code, and what x-core does with it
-- [Express](./docs/express.md)
-- [NestJS](./docs/nestjs.md)
-- [Nuxt 4 / Nitro server API](./docs/nitro.md)
-- [Running several processes](./docs/multi-process.md)
+- [Installing an application](./docs/guides/en/install.md) - the pairing code, and what x-core does with it
+- [The service file](./docs/guides/en/service.md) - every option, what the store holds, and what a real table looks like
+- [Express](./docs/guides/en/express.md)
+- [NestJS](./docs/guides/en/nestjs.md)
+- [Nuxt 4 / Nitro server API](./docs/guides/en/nitro.md)
+- [Running several processes](./docs/guides/en/multi-process.md)
+
+## The protocol, specified
+
+[docs/specs/](./docs/specs/en/README.md) is x-core's SSO written down independently of this library: the signed HTTP surface, the realtime gateway, the session model, the lifecycle, the permissions and the invariants. It is what this library implements, and what a reader consults when they need to know why something is the way it is rather than how to call it.
+
+The sequence diagrams are in [docs/diagrams/](./docs/diagrams/), in English and French, whole and split into printable A4 sheets.
 
 ## Development
 
@@ -365,4 +374,4 @@ npm run build
 - The session cookie is sealed AES-256-GCM. The token pair IS the session: no local refresh chain. Changing `session.password` signs everyone out.
 - `dependGlobalRessource` is an array and is sent whether it is empty or not. It records what an application declared at pairing; it is NOT what the door is judged on - `permissions.portail` is, and it arrives with every `me` so a requirement changed on the console applies without re-pairing.
 - The browser half polls nothing, and the server half caches nothing. Every read asks the provider; the socket says what moved.
-- One process holds its realtime tickets in memory and pairs on its own. Several need a shared `realtime.tickets` store, and an election OUTSIDE this library: every worker calls `load()`, the elected one calls `start()` - see [Running several processes](./docs/multi-process.md).
+- One process holds its realtime tickets in memory and pairs on its own. Several need a shared `realtime.tickets` store, and an election OUTSIDE this library: every worker calls `load()`, the elected one calls `start()` - see [Running several processes](./docs/guides/en/multi-process.md).

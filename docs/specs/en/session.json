@@ -1,0 +1,55 @@
+{
+  "user": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "email": "reader@example.test",
+    "displayName": "ADA LOVELACE",
+    "avatarUrl": null,
+    "hasPassword": true
+  },
+  "profile": {
+    "gender": "mrs",
+    "lastname": "LOVELACE",
+    "firstname": "ADA",
+    "birthDate": null,
+    "avatarUrl": null,
+    "locale": "fr-FR",
+    "address": "1 rue de l'Exemple",
+    "address2": null,
+    "city": "EXEMPLE",
+    "postalCode": "00000",
+    "country": "France",
+    "latitude": null,
+    "longitude": null,
+    "phone1": null,
+    "phone2": null,
+    "groupAppsByCategory": false
+  },
+  "permissions": {
+    "global": [
+      "core:access",
+      "example:access",
+      "example:create-records",
+      "example:delete-records",
+      "example:view-records",
+      "example:view-metrics"
+    ],
+    "isRoot": false,
+    "groups": [
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "name": "_sso_user_reader@example.test",
+        "description": null
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "name": "Example operators",
+        "description": "Everyone who may act in the example application"
+      }
+    ],
+    "portail": ["example:access"]
+  },
+  "id": "00000000-0000-4000-8000-000000000001",
+  "email": "reader@example.test",
+  "displayName": "ADA LOVELACE",
+  "avatarUrl": null
+}

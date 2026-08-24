@@ -11,7 +11,7 @@ Concretely, it will not run against anything else:
 - the identity model is x-core's: the HMAC clientId IS the SSO identity. There is no `client_id` / `client_secret` pair, no OAuth discovery document, no JWKS, no OIDC. Pointing this at an OAuth2 or OIDC provider does not fail politely - nothing matches;
 - the permissions are x-core's `resource:action` catalogue, recomputed per account and answered whole with every `me`;
 - the realtime protocol is x-core's, down to its close codes;
-- the provider addresses are **derived from the one an application writes** ([`src/provider.ts`](../src/provider.ts)): the login window is the API's host without its port, the socket is one port further, and the portal comes back with the pairing.
+- the provider addresses are **derived from the one an application writes** ([`src/provider.ts`](../../../src/provider.ts)): the login window is the API's host without its port, the socket is one port further, and the portal comes back with the pairing.
 
 It also needs an x-core recent enough to serve `POST /api/v1/portal/install`. Against an older one, everything works except installing: the credential has to be provisioned by hand through `POST /api/v1/sso/consumer/config` and delivered over the broker, and this library is then given a store that already holds it.
 
@@ -50,10 +50,14 @@ the application:
 createXcoreBridge({
   // ON, OR WITHDRAWN. The first key, because it decides every other one.
   //
-  // At `false` this library WITHDRAWS: no pairing, no declaration, no session, no
-  // socket. `start()` hands back without doing anything, the guards let everything
-  // through, and what signs anybody in is this application's own affair. It is a
-  // decision rather than a fault: it does not throw.
+  // At `false` there is no pairing, no declaration and no socket - AND THIS LIBRARY
+  // STILL AUTHENTICATES, against the accounts lent under `di.local_accounts`. It does
+  // NOT stand aside: the guards hold, `requirePermissions` refuses a missing right,
+  // and the session that comes out has exactly the shape x-core answers.
+  //
+  // At `false` with NOTHING lent, every door SHUTS instead: no provider to ask and no
+  // directory to read means nobody can ever sign in. Standing aside is what used to
+  // serve every protected page to whoever asked.
   //
   // It is NOT a "dev mode", it is a switch, and the application computes it. A
   // development machine that wants the real chain writes `enabled: true` and never
@@ -77,7 +81,7 @@ createXcoreBridge({
   // The install token minted on the console, and the ONE value an operator copies out
   // of this whole flow. It stays here for the life of the application: `INSTALLED`
   // decides whether it is exchanged, not its presence.
-  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+  installToken: "EXAMPLE_ONLY_yTgc9Qm2LbVx7Kd0Rf3PnW8sHjA6ZuE4",
   di: { hmac: { … }, environment: { load, save } },
 });
 ```
@@ -125,7 +129,7 @@ configured above, and to exactly one route on it:
 
 ```http
 POST https://x-core.example.com:13001/api/v1/portal/install
-x-install-token: 7EPkuTlxYY2GcDkylMqWrGezgmXDi0LPnae_DkKofQQ
+x-install-token: EXAMPLE_ONLY_yTgc9Qm2LbVx7Kd0Rf3PnW8sHjA6ZuE4
 content-type: application/json
 
 {}
@@ -160,12 +164,13 @@ const started = await xcore.start();
 if (!started.ok) console.error(`[app] the SSO is not serving (${started.status}): ${started.reason}`);
 ```
 
-| `status`       | What it means                                                        |
-| -------------- | -------------------------------------------------------------------- |
-| `ready`        | paired and declared: the SSO is serving                              |
-| `not-paired`   | no install token, or one the provider refused - in **its own words** |
-| `not-declared` | the provider was not told how this application plugs in              |
-| `withdrawn`    | `enabled: false`: this library withdrew, and nothing is wrong        |
+| `status`       | What it means                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------------- |
+| `ready`        | serving: either paired and declared, or standing in against `di.local_accounts`                         |
+| `not-paired`   | no install token, one the provider refused - in **its own words** - or the switch off with nothing lent |
+| `not-declared` | the provider was not told how this application plugs in                                                 |
+
+`XcoreStartResult` also declares a `withdrawn` status. **Nothing returns it.** At `enabled: false` with a directory lent the answer is `ready`, and with nothing lent it is `not-paired` - the union member is left over from when the switch meant standing aside. Branch on `ok`, never on that value.
 
 A boot that died because a token was spent, because the broker was not up yet or
 because the provider was still starting would take the whole application with it -
@@ -218,7 +223,8 @@ xcore.environment;
 //   SSO_REDIRECT_URI:            "https://facturation.example.com/api/auth/sso/callback",
 //   SSO_CANCEL_URI:              "https://facturation.example.com/",
 //   SSO_PORTAL_URL:              "https://portal.example.com",     // where a sign-out lands
-//   SSO_TEMPLATE:                "gestionpratique",
+//   SSO_FRONT_URL:               "https://x-sso.example.com",      // the login window, when named
+//   SSO_TEMPLATE:                "default",
 //   SSO_DEPEND_GLOBAL_RESSOURCE: ["facturation"],
 //
 //   HMAC_AMQP_QUEUE:             "x-facturation-prod",
@@ -231,6 +237,9 @@ xcore.environment;
 //   RABBITMQ_PORT:               5671,
 //   RABBITMQ_USER:               "x_facturation_prod",
 //   RABBITMQ_PASSWORD:           "…",
+//
+//   // Written by this library, never by the pairing: a position, not a setting.
+//   "HMAC_PROPAGATION_CURSOR:…":  { ts: "…", eventId: "…" },
 // }
 ```
 
@@ -258,13 +267,13 @@ dialling it long after everybody has moved.
 
 Nothing about installing runs again. From here the application signs with its own identity and re-declares itself at every boot - `PUT /sso/consumer/config`, idempotent - which is precisely what every application already in the ecosystem does.
 
-`install()` is safe to leave in the boot path forever:
+`start()` is safe to leave in the boot path forever, and there is no `install()` beside it - the older shape had one, and this is what replaced it:
 
-- an empty code → throws. It is an environment variable nobody set, and a `null` there would read as "already installed";
-- a credential already in the store → returns `null`, silently. The code is never spent twice;
-- a code minted for another identity → throws, naming both. It is a misconfiguration, and the alternative is an application that installs cleanly and signs as somebody else;
-- a code already redeemed, withdrawn or expired → throws. There is nothing to retry: on x-core the row is gone, and what it held has been handed to whoever redeemed it.
+- **`INSTALLED` is true** → the token is not even read. The boot opens the queue and declares, and that is all;
+- **no token, and not installed** → `not-paired`, with a reason naming the console screen that mints one. Nothing throws;
+- **a token the provider refuses** → `not-paired`, carrying x-core's own sentence: unknown, withdrawn, expired, already redeemed, or still a draft;
+- **the store refuses to keep what came back** → `not-paired`, and the reason says the token is spent and a new one has to be minted. That is the one failure another boot does not repair.
 
-That last one is the one real change in failure behaviour. There is no half-installed state to recover from any more, because nothing is built at this moment: the call either finds a reservation waiting or finds nothing at all.
+There is no half-installed state to recover from, because nothing is built at this moment: the call either finds a reservation waiting or finds nothing at all. And `INSTALLED` is written in the same `save` as everything it announces, so there is no instant where the application believes itself paired while holding none of it.
 
 Running several workers: the code is single-use, so exactly one of them may attempt it. See [Running several processes](./multi-process.md).

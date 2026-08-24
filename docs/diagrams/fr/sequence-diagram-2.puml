@@ -1,0 +1,144 @@
+@startuml sequence-diagram-2
+
+' Feuille 2/4 - A4 portrait. Voir sequence-diagram.puml pour le diagramme entier.
+skinparam dpi 200
+scale max 1500*2150
+
+title node-sso-consumer - Authentification WSS et réception realtime de ME\nFeuille 2/4 : WebSocket Secure et double authentification
+
+autonumber 26
+
+actor "Utilisateur" as User
+
+participant "Application Front\nNavigateur" as Browser
+participant "SSO Client\nnode-sso-consumer/client" as Client
+participant "Application Node\nnode-sso-consumer" as App
+participant "Realtime Bridge\nnode-sso-consumer" as Bridge
+participant "x-core\nSSO / Realtime Provider" as XCore
+
+
+note over User, XCore #LightYellow
+SUITE DE LA FEUILLE 1/4 :
+le client détient un ticket temporaire à usage unique.
+end note
+
+
+== 4. Ouverture du WebSocket Secure ==
+
+Client -> Bridge : WSS /_ws/realtime?ticket=XXXXX
+
+note over Client, Bridge
+WSS = WebSocket Secure
+
+Connexion persistante
+chiffrée par TLS.
+end note
+
+alt Aucun ticket dans l'URL
+    Bridge --> Client : HTTP 401
+    note right of Bridge
+    Refusé AVANT l'upgrade :
+    le socket n'existe jamais.
+    end note
+else Ticket présent
+    Bridge -> Bridge : Consomme le ticket\nlecture ET suppression en un seul geste
+    Bridge -> Bridge : ticket -> accessToken
+end
+
+alt Ticket invalide / expiré / déjà utilisé
+    Bridge --> Client : close 4402
+    note right of Client
+    4402 n'est PAS une session terminée.
+
+    Le client redemande un ticket
+    et rappelle aussitôt, sans backoff.
+    end note
+else Ticket valide
+
+    == 5. Authentification de l'APPLICATION auprès de x-core ==
+
+    Bridge -> XCore : Ouverture WSS Realtime\nHandshake signé HMAC
+
+    note over Bridge, XCore
+    HMAC répond à :
+
+    "QUELLE APPLICATION
+    ouvre cette connexion ?"
+    end note
+
+    XCore -> XCore : Vérification signature HMAC
+
+    XCore --> Bridge : WebSocket accepté
+
+
+    == 6. Authentification de l'UTILISATEUR ==
+
+    Bridge -> XCore : frame AUTH\n{ accessToken }
+
+    note over Bridge, XCore
+    accessToken répond à :
+
+    "QUEL UTILISATEUR
+    est derrière cette connexion ?"
+
+    Attendue dans les secondes qui suivent
+    l'ouverture, sinon x-core ferme en 4002.
+    end note
+
+    XCore -> XCore : Vérification accessToken
+    XCore -> XCore : Identification utilisateur
+
+    XCore --> Bridge : Auth utilisateur OK
+
+
+    note over Client, XCore
+    Le navigateur n'envoie jamais
+    lui-même la frame AUTH.
+
+    Le Bridge l'envoie à sa place.
+
+    Une frame AUTH provenant
+    du navigateur est refusée.
+    end note
+
+
+    == 7. Abonnement au ME realtime ==
+
+    Client -> Bridge : WebSocket frame\nsubscribe { topic: "me-changed" }
+
+    Bridge -> XCore : WebSocket frame\nsubscribe { topic: "me-changed" }
+
+    Client -> Bridge : subscribe { topic: "me-signed-out" }
+
+    Bridge -> XCore : subscribe { topic: "me-signed-out" }
+
+    Client -> Bridge : subscribe { topic: "me-sessions" }
+
+    Bridge -> XCore : subscribe { topic: "me-sessions" }
+
+    note over Client, Bridge
+    Le navigateur souscrit dès l'ouverture de SON socket,
+    donc AVANT que celui vers x-core soit prêt.
+
+    Le Bridge met ces frames en file
+    et les rejoue sur "open" plutôt que de les perdre.
+    end note
+
+    note over Client, XCore
+    A partir d'ici :
+
+    la connexion reste OUVERTE.
+
+    Aucun polling.
+    Aucun GET /me toutes les X secondes.
+    end note
+
+end
+
+
+note over User, XCore #LightYellow
+SUITE FEUILLE 3/4, dans la branche "Ticket valide" :
+attente permanente et réception du ME par WebSocket.
+end note
+
+@enduml

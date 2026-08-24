@@ -11,7 +11,7 @@ Six files, in the order they are written. Nothing is elided.
 > page. The account, the profile and the rights are asked of x-core on every request
 > and never cached - which is what makes a revocation elsewhere land on the very next
 > call. The cookie carries the account id and the token pair and nothing else. See
-> [what it replaces](../README.md#it-replaces-the-whole-local-authentication).
+> [what it replaces](../../../README.md#it-replaces-the-whole-local-authentication).
 
 ## 1) The service
 
@@ -32,7 +32,7 @@ is minted at the first boot and kept in the application's own store.
 here for the life of the application:
 
 ```ts
-installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+installToken: "EXAMPLE_ONLY_yTgc9Qm2LbVx7Kd0Rf3PnW8sHjA6ZuE4",
 ```
 
 There is no `install()` to call. What decides whether the pairing happens is not the
@@ -48,15 +48,17 @@ import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 import { settings } from "./settings";
 import { accountStore } from "./account-store";
 
-const CLIENT_ID = () => xcore.environment.SSO_CLIENT_ID as string;
-
 export const xcore = createXcoreBridge({
   // ON, OR WITHDRAWN. The first key, because it decides every other one.
   //
-  // At `false` this library WITHDRAWS: no pairing, no declaration, no session, no
-  // socket. `start()` hands back without doing anything, the guards let everything
-  // through, and what signs anybody in is this application's own affair. It is a
-  // decision rather than a fault: it does not throw.
+  // At `false` there is no pairing, no declaration and no socket - AND THIS LIBRARY
+  // STILL AUTHENTICATES, against the accounts lent under `di.local_accounts`. It does
+  // NOT stand aside: the guards hold, `requirePermissions` refuses a missing right,
+  // and the session that comes out has exactly the shape x-core answers.
+  //
+  // At `false` with NOTHING lent, every door SHUTS instead: no provider to ask and no
+  // directory to read means nobody can ever sign in. Standing aside is what used to
+  // serve every protected page to whoever asked.
   //
   // It is NOT a "dev mode", it is a switch, and the application computes it. A
   // development machine that wants the real chain writes `enabled: true` and never
@@ -80,7 +82,7 @@ export const xcore = createXcoreBridge({
   // The install token minted on the console, and the ONE value an operator copies out
   // of this whole flow. It stays here for the life of the application: `INSTALLED`
   // decides whether it is exchanged, not its presence.
-  installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+  installToken: "EXAMPLE_ONLY_yTgc9Qm2LbVx7Kd0Rf3PnW8sHjA6ZuE4",
 
   session: {
     // No password and no name: the first is minted at the first boot, the second is
@@ -136,7 +138,7 @@ there is one. Answer however the framework wants, on `res` or by throwing; the t
 travels untouched. Lend nothing and the library writes the plain answer itself.
 
 `local_accounts` is a DIRECTORY, not a procedure: a list of accounts, and no sign-in
-function to write. See [`enabled`](../README.md#enabled---x-core-answers-or-this-library-stands-in-for-it).
+function to write. See [`enabled`](../../../README.md#enabled---x-core-answers-or-this-library-stands-in-for-it).
 
 The signing is not written here either: this library holds
 `@naskot/node-hmac-auth-core` as its own dependency and builds the signed transport
@@ -148,9 +150,9 @@ The hash is re-read on EVERY call rather than captured at boot: the credential i
 replaced by propagation, and a client built once would sign with the old one until the
 next restart - which surfaces as a `401` on everything, with nothing naming the cause.
 
-`environment` holds nineteen keys and this library writes them: `INSTALLED`,
+`environment` holds twenty keys and this library writes them: `INSTALLED`,
 `SSO_SESSION_PASSWORD`, `SSO_SESSION_COOKIE_NAME`, `SSO_CLIENT_ID`, `SSO_REDIRECT_URI`,
-`SSO_CANCEL_URI`, `SSO_PORTAL_URL`, `SSO_TEMPLATE`, `SSO_DEPEND_GLOBAL_RESSOURCE`, `HMAC_AMQP_QUEUE`,
+`SSO_CANCEL_URI`, `SSO_PORTAL_URL`, `SSO_FRONT_URL`, `SSO_TEMPLATE`, `SSO_DEPEND_GLOBAL_RESSOURCE`, `HMAC_AMQP_QUEUE`,
 `HMAC_PROPAGATION_SECRET`, `HMAC_AMQP_VHOST`, `HMAC_AMQP_BROKER_QUEUE`,
 `RABBITMQ_PROTOCOL`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`,
 `RABBITMQ_PASSWORD` and `HMAC_PROPAGATION_CURSOR`. That last one is where the
@@ -162,10 +164,9 @@ alone.
 `xcore.environment` hands the whole of it back, for whatever else an application does
 with it. The broker is not one of those things any more: **this library opens the
 credential queue itself**, with `@naskot/node-hmac-auth-core-propagation` as its own
-dependency, and an application writes no AMQP at all. That queue is not a convenience
-
-- it is how a paired application gets a key that verifies, since the secret the
-  pairing answers with is hashed by x-core with a pepper that never travels.
+dependency, and an application writes no AMQP at all. That queue is not a
+convenience: it is how a paired application gets a key that verifies at all, since the
+secret the pairing answers with is hashed by x-core with a pepper that never travels.
 
 ## 2) The server
 
@@ -185,13 +186,15 @@ import { xcore } from "./sso/xcore.service";
 const app = express();
 
 app.use(express.json());
-// The relay is the only client and it forwards the browser's address. Without
-// this, every session is filed under this container's own - which is what its
-// owner then reads on the portal's sessions screen.
+// Express hygiene, and NOT something this library depends on: it reads
+// `x-forwarded-for` off the raw headers itself. What actually matters is that the
+// relay SENDS that header - without it every session is filed under this
+// container's address, which is what the portal's sessions screen then shows.
 app.set("trust proxy", true);
 
 // GET  /api/auth/sso/start       the portal's card points here
 // GET  /api/auth/sso/callback    the code comes back, sealed into a session
+// POST /api/auth/sso/sign-in     answers ONLY while standing in, 404 otherwise
 // POST /api/auth/logout          closes this console's session, not the SSO's
 // GET  /api/auth/session         the account, its details, its rights
 // POST /api/auth/realtime-ticket what the page dials the socket with
@@ -370,7 +373,7 @@ if (held) {
 
 ## 7) Production notes
 
-- `app.set("trust proxy", true)` behind a relay, or every session is filed under the container's address.
+- The relay must SEND `x-forwarded-for`, or every session is filed under this container's address. This library reads that header off the raw request itself, so `app.set("trust proxy", true)` is Express hygiene rather than something it needs.
 - `await xcore.start()` before `listen`, and leave it there: it is skipped in silence once a credential is in the store.
 - The pairing code stays in the service for the life of the application. It is never looked at again once `INSTALLED` is true, and it opens nothing anyway: x-core deleted its row the moment it was spent.
 - Several workers: every one calls `await xcore.load()`, the elected one calls `await xcore.start()`, and they share a `realtime.tickets` store so a ticket minted on one is spendable on another. See [Running several processes](./multi-process.md).

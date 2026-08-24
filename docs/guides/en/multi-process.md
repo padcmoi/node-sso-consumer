@@ -64,3 +64,13 @@ Turning it off changes nothing about who gets in. **No guard reads from it, in a
 ## 4) What needs nothing
 
 The sealed cookie. It carries the session whole - the account id and the token pair - so any worker reads it without asking any other, and there is no session store to share, expire or migrate. That is the reason there is no Redis in the list above for the session itself.
+
+## 5) Rotation, and the limit of this arrangement
+
+This is the one to know before multiplying workers.
+
+The rotation dedup is **per process**: the in-flight map lives in the worker holding it. On one process it has seen every rotation there was, so a refused rotation really does mean the refresh token is spent and clearing the cookie is right.
+
+On several, another worker may have won the rotation, which invalidates this copy of the refresh token while the session stays alive - and this side reads that as a session that is over. In practice a reader is signed out whenever two workers race the same expired token, which is what a tab regaining focus produces.
+
+There is nothing to share that would close it: the cookie re-read that would is not implemented. So the two ways out are to keep the number of processes that resolve sessions to one, or to accept the occasional forced sign-in. See [04-lifecycle.md](../../specs/en/04-lifecycle.md).

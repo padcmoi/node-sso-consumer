@@ -1,0 +1,111 @@
+@startuml sequence-diagram-3
+
+' Feuille 3/4 - A4 portrait. Voir sequence-diagram.puml pour le diagramme entier.
+skinparam dpi 200
+scale max 1500*2150
+
+title node-sso-consumer - Authentification WSS et réception realtime de ME\nFeuille 3/4 : attente permanente et réception du ME
+
+autonumber 44
+
+actor "Utilisateur" as User
+
+participant "Application Front\nNavigateur" as Browser
+participant "SSO Client\nnode-sso-consumer/client" as Client
+participant "Application Node\nnode-sso-consumer" as App
+participant "Realtime Bridge\nnode-sso-consumer" as Bridge
+participant "x-core\nSSO / Realtime Provider" as XCore
+
+
+note over User, XCore #LightYellow
+SUITE DE LA FEUILLE 2/4 :
+le WebSocket est ouvert, l'application et l'utilisateur sont authentifiés,
+les trois topics sont souscrits.
+end note
+
+
+group Branche "Ticket valide" (suite)
+
+    == 8. Attente permanente ==
+
+    ... connexion WSS ouverte ...
+
+    Client -> Bridge : ping
+    Bridge -> XCore : ping
+    XCore --> Bridge : pong
+    Bridge --> Client : pong
+
+    note over Client, XCore
+    Le ping sert uniquement
+    à vérifier que la connexion vit.
+
+    Ce n'est PAS un refresh de ME.
+
+    Le ping part TOUJOURS. C'est le CONTRÔLE DE SILENCE qui
+    n'agit que si l'onglet est VISIBLE : un onglet caché voit ses
+    timers bridés, donc le contrôle lirait un silence qui n'a pas
+    eu lieu et fermerait un socket parfaitement sain.
+
+    La reponse porte le topic "#pong" et ne transporte rien :
+    elle a deja fait son travail en arrivant.
+    end note
+
+
+    == 9. Le compte change dans x-core ==
+
+    XCore -> XCore : Modification profil\nOU permissions\nOU droits
+
+    XCore -> XCore : Génération du nouveau SsoMe
+
+
+    == 10. ME envoyé directement par WebSocket ==
+
+    XCore --> Bridge : WSS frame\nme-changed\n{ data: SsoMe }
+
+    Bridge --> Client : WSS frame\nme-changed\n{ data: SsoMe }
+
+    note over Bridge, Client
+    ICI le ME est réellement
+    transporté par WebSocket Secure.
+    end note
+
+    Client -> Client : readMe(frame.data)
+
+    alt Le compte ne satisfait plus portail (inclus dans) global
+        Client -> Client : ended()
+        Client --> Browser : Session terminée, retour au portail
+
+        note over Client, Browser
+        Perdre l'accès à CETTE application n'est pas
+        un droit en moins, c'est la porte.
+
+        La frame vaut donc DECONNEXION et non repaint :
+        sinon le lecteur reste sur une page que le serveur
+        a déjà commencé à refuser.
+        end note
+
+    else Le compte est toujours admis
+        Client -> Client : onAccount(me)
+        Client --> Browser : Nouveau ME disponible
+    end
+
+
+    note over Browser, XCore
+    Le nouveau ME était directement
+    contenu dans la frame WebSocket.
+
+    AUCUN refresh, AUCUN polling, AUCUN GET /me.
+
+    Une seule exception, et elle n'est pas périodique :
+    sur frame me-sessions, voir feuille 4/4.
+    end note
+
+end
+
+
+note over User, XCore #LightYellow
+SUITE FEUILLE 4/4 :
+les autres fins de session, et la reconnexion.
+end note
+
+@enduml

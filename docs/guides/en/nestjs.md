@@ -11,11 +11,11 @@ Nothing here is Express-specific - the library reads what Node hands over, so th
 > page. The account, the profile and the rights are asked of x-core on every request
 > and never cached - which is what makes a revocation elsewhere land on the very next
 > call. The cookie carries the account id and the token pair and nothing else. See
-> [what it replaces](../README.md#it-replaces-the-whole-local-authentication).
+> [what it replaces](../../../README.md#it-replaces-the-whole-local-authentication).
 
-## 1) The provider
+## 1) The service
 
-`src/sso/xcore.provider.ts`
+`src/sso/xcore.service.ts`
 
 One instance for the whole application: several would each open their own sockets for
 the same accounts. Instantiation is synchronous and reaches nobody; the boot is a
@@ -33,7 +33,7 @@ is minted at the first boot and kept in the application's own store.
 here for the life of the application:
 
 ```ts
-installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+installToken: "EXAMPLE_ONLY_yTgc9Qm2LbVx7Kd0Rf3PnW8sHjA6ZuE4",
 ```
 
 There is no `install()` to call. What decides whether the pairing happens is not the
@@ -50,17 +50,19 @@ import { Injectable, type OnApplicationBootstrap, type OnModuleDestroy } from "@
 import { settings } from "./settings";
 import { accountStore } from "./account-store";
 
-const CLIENT_ID = () => xcore.environment.SSO_CLIENT_ID as string;
-
 @Injectable()
-export class XcoreProvider implements OnApplicationBootstrap, OnModuleDestroy {
+export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
   readonly bridge = createXcoreBridge({
     // ON, OR WITHDRAWN. The first key, because it decides every other one.
     //
-    // At `false` this library WITHDRAWS: no pairing, no declaration, no session, no
-    // socket. `start()` hands back without doing anything, the guards let everything
-    // through, and what signs anybody in is this application's own affair. It is a
-    // decision rather than a fault: it does not throw.
+    // At `false` there is no pairing, no declaration and no socket - AND THIS LIBRARY
+    // STILL AUTHENTICATES, against the accounts lent under `di.local_accounts`. It
+    // does NOT stand aside: the guards hold, `requirePermissions` refuses a missing
+    // right, and the session that comes out has exactly the shape x-core answers.
+    //
+    // At `false` with NOTHING lent, every door SHUTS instead: no provider to ask and
+    // no directory to read means nobody can ever sign in. Standing aside is what used
+    // to serve every protected page to whoever asked.
     //
     // It is NOT a "dev mode", it is a switch, and the application computes it. A
     // development machine that wants the real chain writes `enabled: true` and never
@@ -84,7 +86,7 @@ export class XcoreProvider implements OnApplicationBootstrap, OnModuleDestroy {
     // The install token minted on the console, and the ONE value an operator copies out
     // of this whole flow. It stays here for the life of the application: `INSTALLED`
     // decides whether it is exchanged, not its presence.
-    installToken: "ycsvtsa_87jk7RFVv0lYDPnUH1CwDcSD-PmvPHyVP2o",
+    installToken: "EXAMPLE_ONLY_yTgc9Qm2LbVx7Kd0Rf3PnW8sHjA6ZuE4",
 
     session: {
       // No password and no name: the first is minted at the first boot, the second is
@@ -126,7 +128,11 @@ export class XcoreProvider implements OnApplicationBootstrap, OnModuleDestroy {
   // `onApplicationBootstrap` and not `onModuleInit`: everything the declaration
   // needs - the credential store, its broker - is up by then.
   async onApplicationBootstrap() {
-    await this.bridge.start();
+    // NEVER throws: what it did comes back as a value. Said out loud here, because an
+    // application that failed to declare boots perfectly and refuses every sign-in
+    // afterwards - which is the failure that costs an afternoon to trace back.
+    const started = await this.bridge.start();
+    if (!started.ok) console.error(`[sso] not serving (${started.status}): ${started.reason}`);
   }
 
   onModuleDestroy() {
@@ -151,7 +157,7 @@ there is one. Answer however the framework wants, on `res` or by throwing; the t
 travels untouched. Lend nothing and the library writes the plain answer itself.
 
 `local_accounts` is a DIRECTORY, not a procedure: a list of accounts, and no sign-in
-function to write. See [`enabled`](../README.md#enabled---x-core-answers-or-this-library-stands-in-for-it).
+function to write. See [`enabled`](../../../README.md#enabled---x-core-answers-or-this-library-stands-in-for-it).
 
 The signing is not written here either: this library holds
 `@naskot/node-hmac-auth-core` as its own dependency and builds the signed transport
@@ -163,9 +169,9 @@ The hash is re-read on EVERY call rather than captured at boot: the credential i
 replaced by propagation, and a client built once would sign with the old one until the
 next restart - which surfaces as a `401` on everything, with nothing naming the cause.
 
-`environment` holds nineteen keys and this library writes them: `INSTALLED`,
+`environment` holds twenty keys and this library writes them: `INSTALLED`,
 `SSO_SESSION_PASSWORD`, `SSO_SESSION_COOKIE_NAME`, `SSO_CLIENT_ID`, `SSO_REDIRECT_URI`,
-`SSO_CANCEL_URI`, `SSO_PORTAL_URL`, `SSO_TEMPLATE`, `SSO_DEPEND_GLOBAL_RESSOURCE`, `HMAC_AMQP_QUEUE`,
+`SSO_CANCEL_URI`, `SSO_PORTAL_URL`, `SSO_FRONT_URL`, `SSO_TEMPLATE`, `SSO_DEPEND_GLOBAL_RESSOURCE`, `HMAC_AMQP_QUEUE`,
 `HMAC_PROPAGATION_SECRET`, `HMAC_AMQP_VHOST`, `HMAC_AMQP_BROKER_QUEUE`,
 `RABBITMQ_PROTOCOL`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`,
 `RABBITMQ_PASSWORD` and `HMAC_PROPAGATION_CURSOR`. That last one is where the
@@ -177,10 +183,9 @@ alone.
 `xcore.environment` hands the whole of it back, for whatever else an application does
 with it. The broker is not one of those things any more: **this library opens the
 credential queue itself**, with `@naskot/node-hmac-auth-core-propagation` as its own
-dependency, and an application writes no AMQP at all. That queue is not a convenience
-
-- it is how a paired application gets a key that verifies, since the secret the
-  pairing answers with is hashed by x-core with a pepper that never travels.
+dependency, and an application writes no AMQP at all. That queue is not a
+convenience: it is how a paired application gets a key that verifies at all, since the
+secret the pairing answers with is hashed by x-core with a pepper that never travels.
 
 ## 2) The guard and its decorator
 
@@ -264,7 +269,7 @@ export class XcoreExceptionFilter implements ExceptionFilter {
 
 `src/sso/xcore.module.ts`
 
-The five routes go on as a middleware - they are the library's handlers, and the guard must not run in front of them: `/sso/start` is what a signed-out browser is sent to.
+The six routes go on as a middleware - they are the library's handlers, and the guard must not run in front of them: `/sso/start` is what a signed-out browser is sent to.
 
 ```ts
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
@@ -285,6 +290,7 @@ export class XcoreModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // GET  /api/auth/sso/start       where the portal's card points
     // GET  /api/auth/sso/callback    the code comes back, sealed into a session
+    // POST /api/auth/sso/sign-in     answers ONLY while standing in, 404 otherwise
     // POST /api/auth/logout          closes THIS app's session, not the SSO's
     // GET  /api/auth/session         the account, its details, its rights
     // POST /api/auth/realtime-ticket what the page dials the socket with
@@ -350,9 +356,10 @@ The browser half is the library's too - see [the Express guide](./express.md#5-t
 
 ## 8) Production notes
 
-- `trust proxy` behind a relay, or every session is filed under the container's address rather than the browser's.
+- The relay must SEND `x-forwarded-for`, or every session is filed under this container's address rather than the browser's. This library reads it off the raw request itself, so `trust proxy` is Express hygiene rather than something it needs - and it requires `NestFactory.create<NestExpressApplication>(AppModule)` to be callable at all.
 - `onApplicationBootstrap` rather than `onModuleInit`: everything the declaration needs - the credential store, its broker - is up by then. It reads the store, pairs only if `INSTALLED` is not true, and declares.
 - The pairing code stays in the provider for the life of the application. It is never looked at again once `INSTALLED` is true, and it opens nothing anyway: x-core deleted its row the moment it was spent.
 - Several workers need an election and a shared ticket store: see [Running several processes](./multi-process.md).
 - The sealing password is minted at the first boot and kept under `SSO_SESSION_PASSWORD`. Deleting that key signs everyone out at once, and the next boot mints a new one.
-- Nothing reads a `.env`, here or in the library. What a deployment used to carry lives in the application's own store, written by the pairing.\n- Several workers: elect outside. Every worker calls `await bridge.load()`, only the elected one calls `await bridge.start()`.
+- Nothing reads a `.env`, here or in the library. What a deployment used to carry lives in the application's own store, written by the pairing.
+- Several workers: elect outside. Every worker calls `await bridge.load()`, only the elected one calls `await bridge.start()`.

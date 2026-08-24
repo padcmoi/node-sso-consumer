@@ -1,0 +1,104 @@
+@startuml sequence-diagram-4
+
+' Feuille 4/4 - A4 portrait. Voir sequence-diagram.puml pour le diagramme entier.
+skinparam dpi 200
+scale max 1500*2150
+
+title node-sso-consumer - Authentification WSS et réception realtime de ME\nFeuille 4/4 : les autres fins de session, et la reconnexion
+
+autonumber 57
+
+actor "Utilisateur" as User
+
+participant "Application Front\nNavigateur" as Browser
+participant "SSO Client\nnode-sso-consumer/client" as Client
+participant "Application Node\nnode-sso-consumer" as App
+participant "Realtime Bridge\nnode-sso-consumer" as Bridge
+participant "x-core\nSSO / Realtime Provider" as XCore
+
+
+note over User, XCore #LightYellow
+SUITE DE LA FEUILLE 3/4 :
+me-changed est le cas nominal. Voici les quatre autres.
+end note
+
+
+group Branche "Ticket valide" (suite)
+
+    == 11. Les autres fins de session ==
+
+    alt Frame me-signed-out { data: true }
+
+        XCore --> Bridge : me-signed-out
+        Bridge --> Client : me-signed-out
+        Client -> Client : ended()
+
+        note right of Client
+        Session IdP fermée, compte désactivé,
+        ou accès à cette application révoqué.
+        end note
+
+    else Frame me-sessions
+
+        XCore --> Bridge : me-sessions [ ... ]
+        Bridge --> Client : me-sessions [ ... ]
+        Client -> Client : readOwnSession(data)
+
+        opt La ligne "current" a disparu APRES avoir été vue
+
+            Client -> App : GET /api/auth/session
+            App --> Client : 401, ou un ME
+            Client -> Client : ended() si refusé ou non admis
+
+            note over Client, App
+            LA SEULE lecture HTTP après la connexion,
+            et elle n'est pas sur un timer.
+
+            C'est la seule fin de session que me-signed-out
+            ne rapporte pas : couper UNE session depuis
+            l'écran des connexions ne bouge ni la session IdP
+            ni l'accès du compte.
+
+            La rotation remplace la ligne toutes les 15 minutes :
+            une frame lue dans l'intervalle ne montre aucune ligne
+            alors que la session est vivante. D'où la confirmation.
+            end note
+        end
+
+    else x-core ferme le socket
+
+        XCore --> Bridge : close 4001 / 4002 / 4003
+        Bridge --> Client : close 4001 / 4002 / 4003\ncode transmis tel quel
+        Client -> Client : ended(), aucune reconnexion
+
+        note right of Client
+        Le code traverse le Bridge intact : sans lui,
+        le client ne peut pas distinguer une session
+        terminée d'une simple panne de transport.
+        end note
+
+    else Coupure réseau
+
+        Client -> Client : Reconnexion, backoff 1s -> 30s
+        Client -> App : POST /api/auth/realtime-ticket\nun ticket NEUF à chaque dial
+
+        note right of Client
+        Relancée aussi sur online, focus et visibilitychange,
+        sans attendre le backoff : revenir sur un onglet est
+        exactement le moment où une page périmée est
+        devant quelqu'un.
+        end note
+    end
+
+
+    == 12. La connexion continue ==
+
+    ... attente d'un prochain événement ...
+
+    XCore --> Bridge : me-changed { nouveau SsoMe }
+    Bridge --> Client : me-changed { nouveau SsoMe }
+    Client -> Client : onAccount(me)
+
+end
+
+@enduml

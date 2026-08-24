@@ -1,0 +1,140 @@
+@startuml sequence-diagram-1
+
+' Feuille 1/4 - A4 portrait. Voir sequence-diagram.puml pour le diagramme entier.
+skinparam dpi 200
+scale max 1500*2150
+
+title node-sso-consumer - Authentification WSS et réception realtime de ME\nFeuille 1/4 : ouverture de session et ticket
+
+autonumber
+
+actor "Utilisateur" as User
+
+participant "Application Front\nNavigateur" as Browser
+participant "SSO Client\nnode-sso-consumer/client" as Client
+participant "Application Node\nnode-sso-consumer" as App
+participant "Realtime Bridge\nnode-sso-consumer" as Bridge
+participant "x-core\nSSO / Realtime Provider" as XCore
+
+
+== 1. Création du client SSO ==
+
+User -> Browser : Ouvre l'application
+
+Browser -> Client : createSsoClient({...})
+
+note right of Client
+L'instance SSO est créée.
+
+Elle ne possède pas encore ME.
+end note
+
+
+== 2. Demande du ME initial ==
+
+Browser -> Client : await sso.connect()
+
+Client -> App : GET /api/auth/session\nCookie HttpOnly
+
+note over Client, App
+La session navigateur est authentifiée
+par le cookie de session.
+
+Le cookie contient notamment
+les tokens de session chiffrés.
+end note
+
+App -> XCore : GET /api/v1/sso/me?accessToken=...\n+ authentification HMAC application
+
+XCore -> XCore : Vérifie l'application
+XCore -> XCore : Vérifie l'utilisateur
+XCore -> XCore : Calcule profil + permissions
+
+XCore --> App : SsoMe, ou 401 si l'accessToken a expiré
+
+opt accessToken expiré
+    App -> XCore : PUT /api/v1/sso/consumer/session\n{ refreshToken }
+    XCore --> App : nouveau couple\naccessToken + refreshToken
+    App -> App : Re-scelle le cookie
+    App -> XCore : GET /api/v1/sso/me\navec le nouvel accessToken
+    XCore --> App : SsoMe
+
+    note over App, XCore
+    Le refreshToken est à USAGE UNIQUE.
+
+    Sans re-scellement du cookie,
+    la session meurt à l'appel suivant.
+    end note
+end
+
+App -> XCore : Ouvre un WSS de suivi pour ce compte\nHandshake HMAC + frame AUTH + subscribe
+
+note over App, XCore
+SECOND SOCKET, celui-ci côté SERVEUR.
+
+SsoLiveAccounts en ouvre UN par compte, à la première
+lecture de session, distinct de celui du navigateur
+qui est ouvert en feuille 2.
+
+Simple relais vers di.onAccount et di.onSignedOut :
+aucun guard ne lit dedans.
+end note
+
+App --> Client : SsoMe
+
+Client -> Client : onAccount(me)
+
+Client --> Browser : connect() retourne ME
+
+
+note over Browser, XCore
+ATTENTION :
+
+Le premier ME vient d'une requête HTTP.
+
+Il n'est PAS encore reçu
+par WebSocket.
+end note
+
+
+== 3. Création d'un ticket WebSocket authentifié ==
+
+Client -> App : POST /api/auth/realtime-ticket\nCookie HttpOnly
+
+App -> XCore : GET /api/v1/sso/me\nMEME vérification qu'en section 2
+
+XCore --> App : SsoMe
+
+note over App, XCore
+La route ticket ne fait AUCUNE
+vérification locale.
+
+Elle repose la question à x-core,
+rotation comprise. Une session terminée
+est refusée ici, pas au moment du dial.
+end note
+
+App -> Bridge : Créer ticket lié\nà l'accessToken utilisateur
+
+Bridge -> Bridge : Génération ticket\n32 octets, 30 secondes, usage unique
+
+Bridge --> App : ticket
+
+App --> Client : { ticket }
+
+
+note over Client, Bridge
+Le navigateur ne reçoit PAS
+l'accessToken.
+
+Il reçoit uniquement
+un ticket temporaire.
+end note
+
+
+note over User, XCore #LightYellow
+SUITE FEUILLE 2/4 :
+ouverture du WebSocket Secure et double authentification.
+end note
+
+@enduml

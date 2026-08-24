@@ -1,0 +1,104 @@
+@startuml sequence-diagram-4
+
+' Sheet 4/4 - A4 portrait. See sequence-diagram.puml for the whole diagram.
+skinparam dpi 200
+scale max 1500*2150
+
+title node-sso-consumer - WSS authentication and realtime delivery of ME\nSheet 4/4: the other ways a session ends, and the reconnection
+
+autonumber 57
+
+actor "User" as User
+
+participant "Front Application\nBrowser" as Browser
+participant "SSO Client\nnode-sso-consumer/client" as Client
+participant "Node Application\nnode-sso-consumer" as App
+participant "Realtime Bridge\nnode-sso-consumer" as Bridge
+participant "x-core\nSSO / Realtime Provider" as XCore
+
+
+note over User, XCore #LightYellow
+CONTINUED FROM SHEET 3/4:
+me-changed is the nominal case. Here are the four others.
+end note
+
+
+group "Ticket valid" branch (continued)
+
+    == 11. The other ways a session ends ==
+
+    alt me-signed-out frame { data: true }
+
+        XCore --> Bridge : me-signed-out
+        Bridge --> Client : me-signed-out
+        Client -> Client : ended()
+
+        note right of Client
+        IdP session closed, account disabled,
+        or access to this application revoked.
+        end note
+
+    else me-sessions frame
+
+        XCore --> Bridge : me-sessions [ ... ]
+        Bridge --> Client : me-sessions [ ... ]
+        Client -> Client : readOwnSession(data)
+
+        opt The "current" row went AFTER having been seen
+
+            Client -> App : GET /api/auth/session
+            App --> Client : 401, or a ME
+            Client -> Client : ended() if refused or not admitted
+
+            note over Client, App
+            THE ONLY HTTP read after the connection,
+            and it is not on a timer.
+
+            It is the one way of ending a session that
+            me-signed-out does not report: ending ONE session
+            from the sign-ins screen moves neither the IdP
+            session nor the account's access.
+
+            Rotation replaces the row every 15 minutes:
+            a frame read in the gap shows no row of ours
+            while the session is alive. Hence the confirmation.
+            end note
+        end
+
+    else x-core closes the socket
+
+        XCore --> Bridge : close 4001 / 4002 / 4003
+        Bridge --> Client : close 4001 / 4002 / 4003\ncode passed through untouched
+        Client -> Client : ended(), no reconnection
+
+        note right of Client
+        The code travels through the Bridge intact: without it,
+        the client cannot tell a session that is over
+        from a plain transport failure.
+        end note
+
+    else Network drop
+
+        Client -> Client : Reconnection, backoff 1s -> 30s
+        Client -> App : POST /api/auth/realtime-ticket\na FRESH ticket on every dial
+
+        note right of Client
+        Also woken by online, focus and visibilitychange,
+        without waiting out the backoff: coming back to a tab
+        is exactly when a stale page is in front
+        of somebody.
+        end note
+    end
+
+
+    == 12. The connection carries on ==
+
+    ... waiting for the next event ...
+
+    XCore --> Bridge : me-changed { new SsoMe }
+    Bridge --> Client : me-changed { new SsoMe }
+    Client -> Client : onAccount(me)
+
+end
+
+@enduml
