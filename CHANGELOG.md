@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-24
+
+- Point the four POC at the registry. They declared `file:../../packages/...0.1.1.tgz`, and `packages/` was deleted in `0.1.6`, so `pnpm install` failed outright in all four - which meant nothing could try a release before it went out. They now declare `^0.1.6` and their lockfiles resolve to `0.1.7`. Nothing published changes: `poc/` is not in `files`
+
 ## [0.1.7] - 2026-08-24
 
 - Add `LLM/`, one flat English document written for an agent asked to install this library into an application. The material existed - a README, six guides, nine specifications, four diagrams, in two languages - and that is the problem it solves: nothing said which one is authoritative, so a model traversing them picks a page and invents the rest. What it needs is the opposite of a human's documentation: one file, no navigation, no second language, and the order of operations spelled out
