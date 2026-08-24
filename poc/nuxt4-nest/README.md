@@ -15,13 +15,13 @@ POC.
 
 ## Ce que tient chaque moitié
 
-| | `app/` - Nuxt 4 | `api/` - NestJS 11 |
-| --- | --- | --- |
-| Publié sur l'hôte | `127.0.0.1:7010` | rien |
-| SSO | **zéro ligne** | tout |
-| Contenu de `server/` | une liste blanche, un relais HTTP, un relais WebSocket | - |
-| Base de données | aucune | `app_settings`, `hmac_credential` |
-| Pages | oui | aucune |
+|                      | `app/` - Nuxt 4                                        | `api/` - NestJS 11                |
+| -------------------- | ------------------------------------------------------ | --------------------------------- |
+| Publié sur l'hôte    | `127.0.0.1:7010`                                       | rien                              |
+| SSO                  | **zéro ligne**                                         | tout                              |
+| Contenu de `server/` | une liste blanche, un relais HTTP, un relais WebSocket | -                                 |
+| Base de données      | aucune                                                 | `app_settings`, `hmac_credential` |
+| Pages                | oui                                                    | aucune                            |
 
 Il n'y a **ni table `users`, ni colonne mot de passe, ni table `sessions`, ni table de
 permissions**. C'est ce que la librairie remplace, pas ce qu'elle enveloppe. Une ligne
@@ -71,10 +71,10 @@ deux sont silencieuses :
    fichiers `.d.cts` étaient construits et publiés depuis le début, rien ne pointait
    dessus. Corrigé dans `package.json` : `import` et `require` ont chacun leur
    `types`.
-2. **Monter les six routes avec `consumer.apply(...).forRoutes("*")` ne marche pas** -
+2. **Monter les sept routes avec `consumer.apply(...).forRoutes("*")` ne marche pas** -
    c'est pourtant ce que `docs/nestjs.md` décrit. Express retire le chemin de montage
    de `req.url` avant que le handler ne le voie : la librairie lit `/` pour chaque
-   requête, ne reconnaît aucune de ses six routes, les passe toutes plus loin, et ce
+   requête, ne reconnaît aucune de ses sept routes, les passe toutes plus loin, et ce
    qui sort est un `404` de Nest sur `/api/auth/session`. Aucun log, aucune route pour
    se connecter. Le montage correct est un `app.use()` global dans `main.ts`, sans
    chemin - voir [`api/src/main.ts`](api/src/main.ts).
@@ -128,7 +128,7 @@ minter un nouveau.
 ## Sans x-core
 
 `mode: "local"` dans `api/src/sso/xcore.service.ts` : la librairie ne se retire pas,
-elle **remplace** x-core contre `di.local_accounts`. Vraies sessions, guards qui
+elle **remplace** x-core contre `di.accounts`. Vraies sessions, guards qui
 refusent, session de la forme exacte que x-core répond - seule la réponse à « qui
 est-ce » vient d'une liste dans ce fichier. La liste est vide ici ; l'écran de
 connexion est [`app/app/pages/login.vue`](app/app/pages/login.vue).

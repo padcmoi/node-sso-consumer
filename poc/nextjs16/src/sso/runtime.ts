@@ -1,5 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createXcoreBridge, type SsoMe, type WebRequest, type WebResponse, type XcoreBridge } from "@gestionpratique/node-sso-consumer";
+import {
+  createXcoreBridge,
+  type SsoMe,
+  type WebRequest,
+  type WebResponse,
+  type XcoreBridge,
+} from "@gestionpratique/node-sso-consumer";
 import type { Pool } from "mysql2/promise";
 import { createPool, credentialsOf, settingsOf } from "./store";
 
@@ -67,7 +73,7 @@ const build = (): XcoreRuntime => {
     // over the socket. Those do not simulate credibly.
     //
     // At `"local"` the library does NOT step back: it stands in for x-core against
-    // `di.local_accounts`. Real sessions, guards that enforce, and a session shaped
+    // `di.accounts`. Real sessions, guards that enforce, and a session shaped
     // exactly as the provider answers one.
     mode: "sso",
 
@@ -133,10 +139,9 @@ const build = (): XcoreRuntime => {
         save: (values) => settings.upsertAll(values),
       },
 
-      // A LIST, and nothing more - read only while standing in. No sign-in function
-      // and no password comparison: the login is the library's work whichever side
-      // the directory comes from. What is lent is the DIRECTORY, never the procedure.
-      local_accounts: [],
+      // No `di.accounts`: this POC is in `mode: "sso"` and would never read one.
+      // It is a set of ACCESS FUNCTIONS over a table now, not a list, and the POC
+      // that exercises it is `poc/nuxt4-local`.
 
       // ── HOW THIS APPLICATION SAYS "REFUSED" ─────────────────────────────
       //

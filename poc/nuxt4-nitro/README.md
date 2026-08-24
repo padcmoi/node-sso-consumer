@@ -15,9 +15,9 @@ serait encore valide. C'est la raison de tout le reste.
 
 ## Ce qu'il reste en base
 
-| Table             | Ce que c'est                                                      |
-| ----------------- | ----------------------------------------------------------------- |
-| `app_settings`    | l'étagère clé/valeur de cette app, que l'appairage remplit         |
+| Table             | Ce que c'est                                                        |
+| ----------------- | ------------------------------------------------------------------- |
+| `app_settings`    | l'étagère clé/valeur de cette app, que l'appairage remplit          |
 | `hmac_credential` | le hash avec lequel elle signe l'API de x-core, livré par le broker |
 | `services`        | ses **propres** données, la seule chose qu'elle ait jamais possédée |
 
@@ -58,11 +58,11 @@ sont rangés dans `app_settings`.
 
 `start()` ne lève jamais. Ce qu'il a fait revient en valeur, et une ligne le dit :
 
-| `status`       | Ce que ça veut dire                                             |
-| -------------- | --------------------------------------------------------------- |
-| `ready`        | appairé et déclaré : le SSO sert                                 |
-| `not-paired`   | pas de jeton, ou un jeton refusé - avec les mots de x-core       |
-| `not-declared` | x-core n'a pas été informé de la façon dont l'app se branche     |
+| `status`       | Ce que ça veut dire                                          |
+| -------------- | ------------------------------------------------------------ |
+| `ready`        | appairé et déclaré : le SSO sert                             |
+| `not-paired`   | pas de jeton, ou un jeton refusé - avec les mots de x-core   |
+| `not-declared` | x-core n'a pas été informé de la façon dont l'app se branche |
 
 En `mode: 'local'` avec un annuaire prêté, le statut est `ready` lui aussi : la librairie
 tient de vraies sessions, elle les tient simplement contre cette liste. Sans annuaire,
@@ -109,15 +109,15 @@ derrière.
 
 ## API Nitro
 
-| Route                           | Rôle                                                       |
-| ------------------------------- | ---------------------------------------------------------- |
-| `GET /api/auth/sso/start`       | la carte du portail pointe ici                             |
-| `GET /api/auth/sso/callback`    | le code revient, scellé en session                         |
-| `POST /api/auth/logout`         | ferme la session de CETTE app, pas celle du SSO            |
-| `GET /api/auth/session`         | le compte, ses détails, ses droits                         |
-| `POST /api/auth/realtime-ticket`| un ticket à usage unique, 30 s, pour la socket             |
-| `GET /api/services`             | données métier, refusée sans session                       |
-| `GET /api/portal`               | où atterrit un navigateur sans session                     |
+| Route                            | Rôle                                            |
+| -------------------------------- | ----------------------------------------------- |
+| `GET /api/auth/sso/start`        | la carte du portail pointe ici                  |
+| `GET /api/auth/sso/callback`     | le code revient, scellé en session              |
+| `POST /api/auth/logout`          | ferme la session de CETTE app, pas celle du SSO |
+| `GET /api/auth/session`          | le compte, ses détails, ses droits              |
+| `POST /api/auth/realtime-ticket` | un ticket à usage unique, 30 s, pour la socket  |
+| `GET /api/services`              | données métier, refusée sans session            |
+| `GET /api/portal`                | où atterrit un navigateur sans session          |
 
 Les cinq premières sont portées par la librairie, via
 [`server/middleware/sso.ts`](./server/middleware/sso.ts). Aucune n'est écrite ici.

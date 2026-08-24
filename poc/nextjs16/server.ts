@@ -114,7 +114,7 @@ async function main() {
     // cast: nothing is converted, and the compiler still checks both ends.
     const req: WebRequest = node;
 
-    // The six routes, first and unguarded. `/sso/start` is precisely where a browser
+    // The seven routes, first and unguarded. `/sso/start` is precisely where a browser
     // WITHOUT a session is sent: behind the guard it would refuse the one route that
     // exists to fix being refused. The handler passes on anything that is not one of
     // its own, so there is no list of paths to keep in step here.

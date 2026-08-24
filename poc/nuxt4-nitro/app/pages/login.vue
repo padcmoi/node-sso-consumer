@@ -14,43 +14,43 @@
  *
  * So there is no logic here worth the name: two fields, one POST, and a redirect.
  */
-definePageMeta({ layout: false })
+definePageMeta({ layout: false });
 
-const email = ref('')
-const password = ref('')
-const refused = ref(false)
-const busy = ref(false)
+const email = ref("");
+const password = ref("");
+const refused = ref(false);
+const busy = ref(false);
 
-const route = useRoute()
+const route = useRoute();
 
 // Where to land afterwards. Read from the query so a reader refused on `/services`
 // comes back to `/services` rather than to the home page - and defaulted to `/`,
 // never to a value from the query alone: an open redirect is exactly what a `next`
 // parameter becomes when it is followed without being checked.
 const next = computed(() => {
-  const asked = route.query.next
-  return typeof asked === 'string' && asked.startsWith('/') && !asked.startsWith('//') ? asked : '/'
-})
+  const asked = route.query.next;
+  return typeof asked === "string" && asked.startsWith("/") && !asked.startsWith("//") ? asked : "/";
+});
 
 async function submit() {
-  busy.value = true
-  refused.value = false
+  busy.value = true;
+  refused.value = false;
 
   try {
     // The library's own route. It answers `401` on a refusal and says nothing about
     // which of the two halves was wrong.
-    await $fetch('/api/auth/sso/sign-in', {
-      method: 'POST',
+    await $fetch("/api/auth/sso/sign-in", {
+      method: "POST",
       body: { email: email.value, password: password.value },
-    })
+    });
     // A full navigation rather than a router push: the cookie was just written, and
     // what has to be re-read is the server-side guard in front of every page.
-    window.location.assign(next.value)
+    window.location.assign(next.value);
   } catch {
-    refused.value = true
-    password.value = ''
+    refused.value = true;
+    password.value = "";
   } finally {
-    busy.value = false
+    busy.value = false;
   }
 }
 </script>

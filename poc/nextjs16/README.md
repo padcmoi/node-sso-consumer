@@ -21,7 +21,7 @@ obligatoire :
 1. **Les route handlers du App Router parlent `Request`/`Response` du Web.** La
    librairie parle `IncomingMessage`/`ServerResponse` - ce que tout framework Node
    porte en dessous. Sans serveur custom il faudrait un adaptateur écrit deux fois,
-   dans les deux sens, pour chacune des six routes.
+   dans les deux sens, pour chacune des sept routes.
 2. **`realtime.attach()` a besoin de l'événement `upgrade`**, et Next ne donne le
    serveur à personne. Sans ce fichier, pas de socket du tout : aucune permission
    n'arrive sur une page ouverte, aucune révocation ne se voit avant la navigation
@@ -42,7 +42,7 @@ Next n'a pas encore envoyée, et le compte voyage jusqu'au rendu par un
 Ce que ça donne dans les pages :
 
 ```tsx
-const me = currentAccount()   // une lecture mémoire, zéro aller-retour
+const me = currentAccount(); // une lecture mémoire, zéro aller-retour
 ```
 
 Dix composants qui posent la question coûtent zéro appel à x-core. Sans serveur
@@ -130,7 +130,7 @@ pnpm prod:reset   # supprime le volume : l'appairage est perdu, il faut un nouve
 ## Sans x-core
 
 `mode: "local"` dans `src/sso/runtime.ts` : la librairie ne se retire pas, elle
-**remplace** x-core contre `di.local_accounts`. Vraies sessions, guards qui refusent,
+**remplace** x-core contre `di.accounts`. Vraies sessions, guards qui refusent,
 session de la forme exacte que x-core répond. La liste est vide ici ; l'écran est
 [`src/app/login/page.tsx`](src/app/login/page.tsx), et il se connecte par une Server
 Action qui appelle `signInLocally`.

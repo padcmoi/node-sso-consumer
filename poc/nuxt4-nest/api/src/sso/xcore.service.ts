@@ -36,7 +36,7 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
       // real propagation and a revocation that genuinely arrives over the socket.
       //
       // At `"local"` the library does NOT step back: it stands in for x-core against
-      // `di.local_accounts` below. Real sessions, guards that enforce, and a session
+      // `di.accounts` below. Real sessions, guards that enforce, and a session
       // shaped exactly as the provider answers one - only the answer to "who is
       // this" comes from a list in this file instead of from over there.
       mode: "sso",
@@ -141,19 +141,11 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
           save: (values) => settings.upsertAll(values),
         },
 
-        // ── L'ANNUAIRE LOCAL, LU SEULEMENT À `mode: "local"` ───────────────
+        // ── PAS D'ANNUAIRE ICI ──────────────────────────────────────────────
         //
-        // A LIST, and nothing more. No sign-in function, no password comparison, no
-        // form: the login is the library's work, exactly as it is in
-        // `"sso"`. What is lent here is the DIRECTORY, never the procedure.
-        //
-        // The library fills the rest out to the exact shape x-core answers, so a
-        // screen reading `me.profile.city` renders here and renders there.
-        //
-        // A record carries `passwordHash`, scrypt, produced by the library's own
-        // `hashPassword` and never written by hand. Empty here: this POC has no
-        // local login and never had one.
-        local_accounts: [],
+        // `di.accounts` n'est pas prêté, et ce POC est en `mode: "sso"` : il ne serait
+        // jamais lu. C'est un jeu de QUATRE FONCTIONS D'ACCÈS sur une table depuis
+        // 0.2.0, plus une liste, et le POC qui l'exerce est `poc/nuxt4-local`.
 
         // ── NOTHING IS LENT FOR THE REFUSALS, AND THAT IS THE NEST ANSWER ──
         //

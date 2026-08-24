@@ -1,4 +1,4 @@
-import { createXcoreBridge } from '@gestionpratique/node-sso-consumer'
+import { createXcoreBridge } from "@gestionpratique/node-sso-consumer";
 
 /**
  * What this POC DECIDES, and what it LENDS. Nothing else.
@@ -26,10 +26,10 @@ export const xcore = createXcoreBridge({
   // credibly.
   //
   // At `"local"` the library does NOT step back: it stands in for x-core against
-  // `di.local_accounts` below. Real sessions, guards that enforce, and a session
+  // `di.accounts` below. Real sessions, guards that enforce, and a session
   // shaped exactly as the provider answers one - only the answer to "who is this"
   // comes from a list in this file instead of from over there.
-  mode: 'sso',
+  mode: "sso",
 
   // ── WHERE IT CALLS ──────────────────────────────────────────────────────────
   //
@@ -56,8 +56,8 @@ export const xcore = createXcoreBridge({
   // so this line is what covers the window before that reaches every deployment.
   // Delete it once it has, and the token is the only value copied by hand again.
   provider: {
-    baseUrl: 'https://x-core.gestionpratique.ovh:13001',
-    frontUrl: 'https://x-sso.gestionpratique.ovh',
+    baseUrl: "https://x-core.gestionpratique.ovh:13001",
+    frontUrl: "https://x-sso.gestionpratique.ovh",
   },
 
   // ── THE ONE VALUE COPIED BY HAND ────────────────────────────────────────────
@@ -70,7 +70,7 @@ export const xcore = createXcoreBridge({
   //
   // Until a VALID one is put here this POC boots, says so in one line, and serves
   // nothing behind the SSO - which is the state the log calls `not-paired`.
-  installToken: 'MN2uEqQHJWS_SRinI3wOA7qhvUd5ygwa_R5rX9Zf7kc',
+  installToken: "MN2uEqQHJWS_SRinI3wOA7qhvUd5ygwa_R5rX9Zf7kc",
 
   session: {
     // No password and no name here: the first is minted at the first boot and kept
@@ -80,15 +80,15 @@ export const xcore = createXcoreBridge({
     // `secure: false` because this POC is published over plain HTTP on a port: a
     // Secure cookie is dropped by the browser there, and what one reads then is
     // "signed out" at every navigation with nothing in the logs.
-    cookie: { secure: false, sameSite: 'lax', maxAgeDays: 30 },
+    cookie: { secure: false, sameSite: "lax", maxAgeDays: 30 },
   },
 
   // `loginPath` is read only while standing in: in `"sso"`, the portal is
   // the one place anybody signs in and this library never sends a browser to a page
   // of its own. Standing in there is no portal, so a reader with no session goes to
   // THIS application's screen - which posts to `/api/auth/sso/sign-in`.
-  routes: { basePath: '/api/auth', afterLogin: '/', loginPath: '/login' },
-  realtime: { path: '/_ws/realtime' },
+  routes: { basePath: "/api/auth", afterLogin: "/", loginPath: "/login" },
+  realtime: { path: "/_ws/realtime" },
 
   // Follow every account this POC holds a session for: a permission granted or
   // revoked anywhere lands here within seconds instead of at the next navigation.
@@ -119,35 +119,12 @@ export const xcore = createXcoreBridge({
       save: (values) => settings.upsertAll(values),
     },
 
-    // ── L'ANNUAIRE LOCAL, LU SEULEMENT À `mode: 'local'` ─────────────────────
+    // ── PAS D'ANNUAIRE ICI ────────────────────────────────────────────────────
     //
-    // A LIST, and nothing more. No sign-in function, no password comparison, no
-    // form: the login is the library's work, exactly as it is in `"sso"`.
-    // What is lent here is the DIRECTORY, never the procedure.
-    //
-    // What is written is thin. The library fills the rest out to the exact shape
-    // x-core answers - `id` derived from the email so a cookie survives a restart,
-    // `displayName` composed, `profile` complete with its nulls, permissions
-    // namespaced, `isRoot`, and the `_sso_user_<email>` group. A screen reading
-    // `me.profile.city` renders here and renders there.
-    //
-    // The password is HASHED, scrypt, and produced by the library's own
-    // `hashPassword` - never written by hand. The hash below is `aaa`, which is what
-    // this POC signs in with.
-    //
-    // Written out as a literal rather than computed at boot, and that is the point
-    // of the format: the same string is what a row of a table will hold once the
-    // directory moves out of this file, so nothing about the comparison changes when
-    // it does.
-    local_accounts: [
-      {
-        email: 'test@abc.fr',
-        passwordHash: 'scrypt$16384$8$1$nKsZZsMHOMV934vPWFDjUA$bhPInhcyXB4-pP3uRphbQgHLs2kJ-oSf_cY0zDW6P8k',
-        firstName: 'Juoien',
-        lastName: 'Julien',
-        permissions: ['read:user', 'write:user'],
-      },
-    ],
+    // `di.accounts` n'est pas prêté, et ce POC est en `mode: 'sso'` : il ne serait
+    // jamais lu. Il portait une liste en dur, ce qui n'a plus de sens depuis que la
+    // clé est un jeu de fonctions d'accès sur une table - et c'est `poc/nuxt4-local`
+    // qui prouve ce mode maintenant, avec `app_sso_accounts` derrière.
 
     // HOW this application says "refused" - ALL of it, in one function.
     //
@@ -172,12 +149,12 @@ export const xcore = createXcoreBridge({
         // `setHeader` and `statusCode`, not `writeHead`: the library hands over its
         // own minimal response shape - what every Node framework agrees on - and
         // `writeHead` is not part of it.
-        res.statusCode = 302
-        res.setHeader('location', refusal.redirectTo)
-        res.end()
-        return
+        res.statusCode = 302;
+        res.setHeader("location", refusal.redirectTo);
+        res.end();
+        return;
       }
-      throw createError({ statusCode: refusal.status, statusMessage: refusal.message })
+      throw createError({ statusCode: refusal.status, statusMessage: refusal.message });
     },
   },
 
@@ -186,4 +163,4 @@ export const xcore = createXcoreBridge({
   // x-core may start after this POC does. Five attempts three seconds apart cover a
   // `docker compose up` where the two go up together.
   retry: { attempts: 5, delayMs: 3_000 },
-})
+});

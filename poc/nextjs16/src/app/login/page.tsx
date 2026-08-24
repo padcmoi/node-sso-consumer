@@ -1,4 +1,4 @@
-import { LoginForm } from './form'
+import { LoginForm } from "./form";
 
 /**
  * L'écran de connexion, et SEULEMENT pendant que la librairie remplace x-core.
@@ -23,10 +23,10 @@ export default function Login() {
         <LoginForm />
 
         <p className="text-xs text-slate-500">
-          Ces comptes vivent dans <code className="font-mono">src/sso/runtime.ts</code>. Avec{' '}
+          Ces comptes vivent dans <code className="font-mono">src/sso/runtime.ts</code>. Avec{" "}
           <code className="font-mono">mode: &quot;sso&quot;</code>, cet écran n&apos;est jamais atteint.
         </p>
       </div>
     </main>
-  )
+  );
 }

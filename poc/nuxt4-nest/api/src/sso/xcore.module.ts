@@ -7,7 +7,7 @@ import { XcoreService } from "./xcore.service";
 import { SettingsStore } from "./settings.store";
 
 /**
- * The bridge, the guard and the filter. The library's six routes are NOT here.
+ * The bridge, the guard and the filter. The library's seven routes are NOT here.
  *
  * They are mounted in `main.ts`, and that is not a preference - see the comment
  * there. `configure(consumer)` with `forRoutes("*")`, which is what `docs/nestjs.md`
@@ -17,13 +17,7 @@ import { SettingsStore } from "./settings.store";
  * anything, and the sign-in route simply does not exist.
  */
 @Module({
-  providers: [
-    XcoreService,
-    XcoreGuard,
-    SettingsStore,
-    CredentialsStore,
-    { provide: APP_FILTER, useClass: XcoreExceptionFilter },
-  ],
+  providers: [XcoreService, XcoreGuard, SettingsStore, CredentialsStore, { provide: APP_FILTER, useClass: XcoreExceptionFilter }],
   exports: [XcoreService, XcoreGuard],
 })
 export class XcoreModule {}

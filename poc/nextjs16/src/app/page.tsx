@@ -1,8 +1,8 @@
-import { xcore } from '@/sso/runtime'
-import { currentAccount } from '@/sso/session'
-import { signOut } from './actions'
-import { Live } from './live'
-import { Probe } from './probe'
+import { xcore } from "@/sso/runtime";
+import { currentAccount } from "@/sso/session";
+import { signOut } from "./actions";
+import { Live } from "./live";
+import { Probe } from "./probe";
 
 /**
  * ── OBLIGATOIRE, ET ÇA NE SE VOIT PAS ──────────────────────────────────────────
@@ -21,7 +21,7 @@ import { Probe } from './probe'
  * `cookies()` serait marquée dynamique toute seule - et paierait le rescellement du
  * cookie qu'un Server Component ne peut pas écrire.
  */
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic";
 
 /**
  * Un Server Component, et il ne fait AUCUN appel.
@@ -33,9 +33,9 @@ export const dynamic = 'force-dynamic'
  * composant qui a besoin du compte.
  */
 export default function Home() {
-  const me = currentAccount()
-  const portalUrl = xcore().portalUrl || null
-  const actions = me?.permissions.global ?? []
+  const me = currentAccount();
+  const portalUrl = xcore().portalUrl || null;
+  const actions = me?.permissions.global ?? [];
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-8 sm:px-6">
@@ -48,10 +48,7 @@ export default function Home() {
         {/* Un formulaire, une Server Action, zéro JavaScript à écrire. Le cookie est
             effacé sur la vraie réponse HTTP, depuis l'action. */}
         <form action={signOut}>
-          <button
-            type="submit"
-            className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5"
-          >
+          <button type="submit" className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/5">
             Se déconnecter
           </button>
         </form>
@@ -59,10 +56,10 @@ export default function Home() {
 
       <section className="rounded-lg border border-white/10 bg-slate-900/60 p-4">
         <p className="text-sm text-slate-400">
-          Un seul process : les pages, les six routes du SSO et la socket temps réel. Aucune route{' '}
-          <code className="font-mono text-slate-300">/api</code> de cette application - les écritures passent par des
-          Server Actions. Aucune table d&apos;utilisateurs, de mots de passe, de sessions ni de permissions : le compte
-          et les droits sont demandés à x-core à chaque requête et jamais mis en cache.
+          Un seul process : les pages, les sept routes du SSO et la socket temps réel. Aucune route{" "}
+          <code className="font-mono text-slate-300">/api</code> de cette application - les écritures passent par des Server
+          Actions. Aucune table d&apos;utilisateurs, de mots de passe, de sessions ni de permissions : le compte et les droits
+          sont demandés à x-core à chaque requête et jamais mis en cache.
         </p>
       </section>
 
@@ -90,12 +87,12 @@ export default function Home() {
       <section className="space-y-4 rounded-lg border border-white/10 bg-slate-900/60 p-4">
         <h2 className="text-sm font-semibold text-white">Demander un droit à une Server Action</h2>
         <p className="text-sm text-slate-400">
-          L&apos;action est un POST public : son identifiant est dans cette page et n&apos;importe qui peut le poster.
-          Ce qui la garde, c&apos;est la ligne <code className="font-mono text-slate-300">requirePermissions</code>{' '}
-          qu&apos;elle contient, et rien d&apos;autre. Tapez un droit que ce compte ne détient pas.
+          L&apos;action est un POST public : son identifiant est dans cette page et n&apos;importe qui peut le poster. Ce qui la
+          garde, c&apos;est la ligne <code className="font-mono text-slate-300">requirePermissions</code> qu&apos;elle contient,
+          et rien d&apos;autre. Tapez un droit que ce compte ne détient pas.
         </p>
         <Probe suggestion={actions[0] ?? null} />
       </section>
     </main>
-  )
+  );
 }

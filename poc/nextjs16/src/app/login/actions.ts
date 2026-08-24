@@ -1,17 +1,17 @@
-'use server'
+"use server";
 
-import { redirect } from 'next/navigation'
-import { xcore } from '@/sso/runtime'
-import { currentExchange } from '@/sso/session'
+import { redirect } from "next/navigation";
+import { xcore } from "@/sso/runtime";
+import { currentExchange } from "@/sso/session";
 
 interface SignInState {
-  refused: boolean
+  refused: boolean;
 }
 
 /**
  * La connexion en doublure, par une Server Action.
  *
- * La librairie fait tout le travail : elle compare contre `di.local_accounts`, elle
+ * La librairie fait tout le travail : elle compare contre `di.accounts`, elle
  * scelle le cookie, elle tient la session - exactement comme face à x-core. Cette
  * action ne fait que lui passer la requête, la réponse et les deux champs.
  *
@@ -23,14 +23,14 @@ interface SignInState {
  * demande quelles adresses existent ici.
  */
 export async function signIn(_previous: SignInState, form: FormData) {
-  const { req, res } = currentExchange()
+  const { req, res } = currentExchange();
 
   const opened = await xcore().signInLocally(req, res, {
-    email: String(form.get('email') ?? ''),
-    password: String(form.get('password') ?? ''),
-  })
+    email: String(form.get("email") ?? ""),
+    password: String(form.get("password") ?? ""),
+  });
 
-  if (!opened) return { refused: true } satisfies SignInState
+  if (!opened) return { refused: true } satisfies SignInState;
 
-  redirect('/')
+  redirect("/");
 }
