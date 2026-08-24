@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import type { XcoreSeenAccount } from "@gestionpratique/node-sso-consumer";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 
 /**

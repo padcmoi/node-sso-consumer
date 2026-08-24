@@ -1,11 +1,30 @@
+# ── THE LIBRARY, BUILT HERE ───────────────────────────────────────────────────
+#
+# `package.json` in this POC declares the library as `file:../../..`, so what pnpm
+# installs is the DIRECTORY - packed the way `npm publish` would pack it, which means
+# it needs `dist/` to exist. And `dist/` is in the root `.dockerignore`, deliberately:
+# a build output copied from a host is whatever that host last compiled.
+#
+# So it is compiled here instead, from `src/`, in its own stage.
+FROM node:22-alpine AS lib
+
+WORKDIR /lib
+COPY package.json package-lock.json tsconfig.json ./
+COPY src/ ./src/
+RUN npm ci --ignore-scripts && npm run build
+
+# ── THE POC ───────────────────────────────────────────────────────────────────
+#
+# The tree is MIRRORED here on purpose: `file:../../..` read from
+# `/build/poc/nuxt4-nest/app` is `/build`, the same path it means on a host.
 FROM node:22-alpine AS build
 
 RUN corepack enable
 
-# The build context is the LIBRARY's root, not this folder. The tree used to be
-# MIRRORED here so that `file:../../../packages/*.tgz` resolved to the same file
-# inside the image as on a host; that folder is gone and the library comes from the
-# registry now.
+WORKDIR /build
+COPY package.json README.md LICENSE CHANGELOG.md ./
+COPY --from=lib /lib/dist ./dist
+
 WORKDIR /build/poc/nuxt4-nest/app
 # One COPY, and the root `.dockerignore` decides what is in it.
 COPY poc/nuxt4-nest/app/ ./
