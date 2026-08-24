@@ -1,14 +1,13 @@
-import { SsoError } from "../errors.js";
-import { asFields } from "../parse.js";
-import { clientContextOf, jarOf, pathOf, queryOf, readJson, redirect, sendJson } from "./web.js";
-import { statusOf, type SsoErrorCode } from "../errors.js";
-import type { SsoRefusal } from "../xcore-bridge.js";
-import type { WebErrorHandler, WebHandler, WebRequest, WebResponse } from "./web.js";
 import type { SsoAuthService } from "../auth.service.js";
+import type { SsoRefusal } from "../bridge/contract.js";
 import type { SsoConfigService } from "../config.service.js";
+import { SsoError, statusOf, type SsoErrorCode } from "../errors.js";
+import { asFields } from "../parse.js";
 import type { SsoRealtimeBridge } from "../realtime/bridge.js";
 import type { SsoSessionService } from "../session/session.service.js";
 import type { SsoLogger, SsoMe, SsoTokens } from "../types.js";
+import type { WebErrorHandler, WebHandler, WebRequest, WebResponse } from "./web.js";
+import { clientContextOf, jarOf, pathOf, queryOf, readJson, redirect, sendJson } from "./web.js";
 
 export interface SsoMiddlewareOptions {
   auth: SsoAuthService;

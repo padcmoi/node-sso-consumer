@@ -12,14 +12,8 @@
 //
 // Nothing reads `process.env`, opens a store or holds a secret.
 
-export {
-  XcoreBridge,
-  createXcoreBridge,
-  type XcoreBridgeOptions,
-  type XcoreInjection,
-  type SsoRefusal,
-  type XcoreStartResult,
-} from "./xcore-bridge.js";
+export { XcoreBridge, createXcoreBridge } from "./xcore-bridge.js";
+export type { SsoRefusal, XcoreBridgeOptions, XcoreInjection, XcoreStartResult } from "./bridge/contract.js";
 
 export { SsoConfigService, type SsoConfigServiceOptions } from "./config.service.js";
 export { SsoAuthService, type SsoAuthServiceOptions, type SsoResolution } from "./auth.service.js";
