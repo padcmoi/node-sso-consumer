@@ -27,7 +27,8 @@ export {
 } from "./session/session.service.js";
 export { SsoRealtimeClient, type SsoRealtimeOptions } from "./realtime/realtime.client.js";
 
-export { SsoMiddleware, type SsoMiddlewareOptions } from "./http/middleware.js";
+export { SsoMiddleware } from "./http/middleware.js";
+export type { SsoMiddlewareOptions } from "./http/middleware-options.js";
 export {
   clientContextOf,
   jarOf,

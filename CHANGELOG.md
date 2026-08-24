@@ -16,6 +16,9 @@
 - Leave `browser.ts` as the entry it has to be: `package.json` publishes `./client` from it and tsup builds it as its own bundle, so the file stays and holds the session, the resource name and the enrolment latch
 - Turn the frame routing into a function with four handlers rather than a method reaching into five private fields, and answer the `me-sessions` latch as a verdict - `enrolled`, `gone`, `unknown` - instead of acting on it. The latch belongs to whoever holds the session, because the read that settles a `gone` is a read of the session
 - Leave `admitted` written twice, here and in `bridge/access.ts`. Sharing it would pull server code into a browser bundle, which the first line of that file forbids; both now say so where they are
+- Split `http/middleware.ts` along the line that was already there: what ANSWERS and what GUARDS. `http/routes.ts` holds the six routes this library serves, `http/guards.ts` the three chain handlers plus the `account()` a framework calls instead of being wrapped by, `http/refusal.ts` the one refusal both of them speak, and `http/middleware-options.ts` what the bridge lends. `middleware.ts` is the facade, and holds five delegations
+- Keep the refusal in one file because it is one decision. Session over, x-core refusing, x-core unreachable, never paired - four causes, one answer, since in every one of them nothing is known about the reader. It was already written once; now it is also stored once, where the three callers can only agree with it
+- Compute the base path once, in `baseOf`, rather than re-reading `options.basePath` per request through a getter. The options are held read-only for the life of the middleware, so it is the same answer, and the paragraph explaining why `/api/auth` is not a free choice - x-core's console composes the callback and offers no field for it - now sits on the value itself
 
 ## [0.1.7] - 2026-08-24
 
