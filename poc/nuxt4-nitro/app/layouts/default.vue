@@ -1,28 +1,27 @@
 <script setup lang="ts">
-const route = useRoute()
-const { account, connected, logout } = useSso()
-const open = ref(false)
+const route = useRoute();
+const { account, connected, logout } = useSso();
+const open = ref(false);
 
 const links = [
-  { label: "Vue d'ensemble", to: '/', icon: 'i-lucide-layout-dashboard' },
-  { label: 'Services', to: '/services', icon: 'i-lucide-server' },
-  { label: 'Session', to: '/test', icon: 'i-lucide-flask-conical' },
-]
+  { label: "Vue d'ensemble", to: "/", icon: "i-lucide-layout-dashboard" },
+  { label: "Services", to: "/services", icon: "i-lucide-server" },
+  { label: "Session", to: "/test", icon: "i-lucide-flask-conical" },
+];
 
-const current = computed(() => links.find((link) => link.to === route.path)?.label ?? 'POC Nuxt 4 + Nitro')
+const current = computed(() => links.find((link) => link.to === route.path)?.label ?? "POC Nuxt 4 + Nitro");
 
-watch(() => route.path, () => {
-  open.value = false
-})
+watch(
+  () => route.path,
+  () => {
+    open.value = false;
+  }
+);
 </script>
 
 <template>
   <div class="min-h-screen bg-slate-950 text-slate-200">
-    <div
-      v-if="open"
-      class="fixed inset-0 z-30 bg-black/60 lg:hidden"
-      @click="open = false"
-    />
+    <div v-if="open" class="fixed inset-0 z-30 bg-black/60 lg:hidden" @click="open = false" />
 
     <aside
       class="fixed inset-y-0 left-0 z-40 flex w-64 -translate-x-full flex-col border-r border-white/5 bg-slate-900/80 backdrop-blur transition-transform lg:translate-x-0"
@@ -39,9 +38,9 @@ watch(() => route.path, () => {
           :key="link.to"
           :to="link.to"
           class="flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors"
-          :class="route.path === link.to
-            ? 'bg-primary-500/10 text-primary-400'
-            : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'"
+          :class="
+            route.path === link.to ? 'bg-primary-500/10 text-primary-400' : 'text-slate-400 hover:bg-white/5 hover:text-slate-100'
+          "
         >
           <UIcon :name="link.icon" class="size-4 shrink-0" />
           {{ link.label }}
@@ -95,13 +94,9 @@ watch(() => route.path, () => {
 
         <!-- La socket, telle qu'elle est à l'instant : c'est par elle qu'une
              permission retirée ailleurs arrive ici en quelques secondes. -->
-        <UBadge
-          :color="connected ? 'success' : 'neutral'"
-          variant="subtle"
-          size="sm"
-        >
+        <UBadge :color="connected ? 'success' : 'neutral'" variant="subtle" size="sm">
           <span class="size-1.5 rounded-full" :class="connected ? 'bg-green-400' : 'bg-slate-500'" />
-          {{ connected ? 'temps réel' : 'hors ligne' }}
+          {{ connected ? "temps réel" : "hors ligne" }}
         </UBadge>
       </header>
 

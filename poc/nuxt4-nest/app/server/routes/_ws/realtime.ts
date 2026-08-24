@@ -1,5 +1,5 @@
-import { WebSocket } from 'ws'
-import { PROXY_CFG } from '../../proxy.config'
+import { WebSocket } from "ws";
+import { PROXY_CFG } from "../../proxy.config";
 
 // x-core's realtime, relayed.
 //
@@ -17,14 +17,14 @@ import { PROXY_CFG } from '../../proxy.config'
 // with nothing in any log.
 
 interface RelayContext {
-  ticket: string
-  upstream?: WebSocket
+  ticket: string;
+  upstream?: WebSocket;
   /** What the page sent before the far side was up: it subscribes the moment its own socket opens. */
-  queue: string[]
+  queue: string[];
 }
 
 function contextOf(peer: { context: Record<string, unknown> }) {
-  return peer.context.relay as RelayContext | undefined
+  return peer.context.relay as RelayContext | undefined;
 }
 
 export default defineWebSocketHandler({
@@ -34,42 +34,42 @@ export default defineWebSocketHandler({
   // in `open`.
   upgrade(request) {
     request.context.relay = {
-      ticket: /[?&]ticket=([\w-]+)/.exec(request.url)?.[1] ?? '',
+      ticket: /[?&]ticket=([\w-]+)/.exec(request.url)?.[1] ?? "",
       queue: [],
-    } satisfies RelayContext
+    } satisfies RelayContext;
   },
 
   open(peer) {
-    const relay = contextOf(peer)
-    if (!relay?.ticket) return peer.close(4402, 'unauthorized')
+    const relay = contextOf(peer);
+    if (!relay?.ticket) return peer.close(4402, "unauthorized");
 
-    const upstream = new WebSocket(`${PROXY_CFG.wsBaseInternal}/_ws/realtime?ticket=${relay.ticket}`)
-    relay.upstream = upstream
+    const upstream = new WebSocket(`${PROXY_CFG.wsBaseInternal}/_ws/realtime?ticket=${relay.ticket}`);
+    relay.upstream = upstream;
 
-    upstream.on('open', () => {
-      for (const frame of relay.queue.splice(0)) upstream.send(frame)
-    })
-    upstream.on('message', (data) => peer.send(String(data)))
+    upstream.on("open", () => {
+      for (const frame of relay.queue.splice(0)) upstream.send(frame);
+    });
+    upstream.on("message", (data) => peer.send(String(data)));
     // x-core's own 4xxx mean "do not retry, sign in again", and they travel through
     // both hops so the page can tell them from a transport failure.
-    upstream.on('close', (code, reason) => peer.close(code >= 4000 && code <= 4999 ? code : 1000, String(reason)))
-    upstream.on('error', () => peer.close(1011, 'upstream unavailable'))
+    upstream.on("close", (code, reason) => peer.close(code >= 4000 && code <= 4999 ? code : 1000, String(reason)));
+    upstream.on("error", () => peer.close(1011, "upstream unavailable"));
   },
 
   message(peer, message) {
-    const relay = contextOf(peer)
-    if (!relay) return
+    const relay = contextOf(peer);
+    if (!relay) return;
 
-    const frame = message.text()
-    if (relay.upstream?.readyState === WebSocket.OPEN) relay.upstream.send(frame)
-    else relay.queue.push(frame)
+    const frame = message.text();
+    if (relay.upstream?.readyState === WebSocket.OPEN) relay.upstream.send(frame);
+    else relay.queue.push(frame);
   },
 
   close(peer) {
-    contextOf(peer)?.upstream?.close()
+    contextOf(peer)?.upstream?.close();
   },
 
   error(peer) {
-    contextOf(peer)?.upstream?.close()
+    contextOf(peer)?.upstream?.close();
   },
-})
+});

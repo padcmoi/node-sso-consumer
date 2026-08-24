@@ -1,33 +1,33 @@
 <script setup lang="ts">
-const { account, actions, connected } = useSso()
-const { data: services } = await useFetch('/api/services')
+const { account, actions, connected } = useSso();
+const { data: services } = await useFetch("/api/services");
 
 const stats = computed(() => [
   {
-    label: 'Services en base',
+    label: "Services en base",
     value: String(services.value?.length ?? 0),
-    icon: 'i-lucide-server',
-    hint: `${services.value?.filter((service) => service.status === 'running').length ?? 0} en marche`,
+    icon: "i-lucide-server",
+    hint: `${services.value?.filter((service) => service.status === "running").length ?? 0} en marche`,
   },
   {
-    label: 'Droits sur cette app',
+    label: "Droits sur cette app",
     value: String(actions.value.length),
-    icon: 'i-lucide-key-round',
-    hint: 'recalculés par x-core à chaque lecture',
+    icon: "i-lucide-key-round",
+    hint: "recalculés par x-core à chaque lecture",
   },
   {
-    label: 'Temps réel',
-    value: connected.value ? 'ouvert' : 'fermé',
-    icon: 'i-lucide-radio',
-    hint: 'me-changed, me-signed-out',
+    label: "Temps réel",
+    value: connected.value ? "ouvert" : "fermé",
+    icon: "i-lucide-radio",
+    hint: "me-changed, me-signed-out",
   },
   {
-    label: 'Sessions en base',
-    value: '0',
-    icon: 'i-lucide-database',
-    hint: 'aucune table de session ici',
+    label: "Sessions en base",
+    value: "0",
+    icon: "i-lucide-database",
+    hint: "aucune table de session ici",
   },
-])
+]);
 </script>
 
 <template>
@@ -41,11 +41,7 @@ const stats = computed(() => [
     />
 
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <UCard
-        v-for="stat in stats"
-        :key="stat.label"
-        :ui="{ root: 'bg-slate-900/60 ring-white/10' }"
-      >
+      <UCard v-for="stat in stats" :key="stat.label" :ui="{ root: 'bg-slate-900/60 ring-white/10' }">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <p class="text-xs uppercase tracking-wide text-slate-500">
@@ -83,7 +79,7 @@ const stats = computed(() => [
         </div>
         <div class="min-w-0">
           <dt class="text-xs uppercase tracking-wide text-slate-500">Ville</dt>
-          <dd class="mt-1 text-sm text-slate-200">{{ account?.profile.city ?? '-' }}</dd>
+          <dd class="mt-1 text-sm text-slate-200">{{ account?.profile.city ?? "-" }}</dd>
         </div>
       </dl>
     </UCard>
@@ -91,9 +87,7 @@ const stats = computed(() => [
     <UCard :ui="{ root: 'bg-slate-900/60 ring-white/10' }">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <h2 class="text-sm font-semibold text-white">
-            Droits sur cette application ({{ actions.length }})
-          </h2>
+          <h2 class="text-sm font-semibold text-white">Droits sur cette application ({{ actions.length }})</h2>
           <!-- Retirez-en un depuis le manager : la liste ci-dessous change sans
                rechargement, parce que la frame EST la nouvelle valeur. -->
           <UBadge color="primary" variant="subtle" size="sm">poussés par websocket</UBadge>
@@ -105,9 +99,7 @@ const stats = computed(() => [
           {{ action }}
         </UBadge>
       </div>
-      <p v-else class="text-sm text-slate-500">
-        Aucun droit sur cette application.
-      </p>
+      <p v-else class="text-sm text-slate-500">Aucun droit sur cette application.</p>
     </UCard>
   </div>
 </template>

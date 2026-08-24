@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { account, connected, logout } = useSso()
+const { account, connected, logout } = useSso();
 </script>
 
 <template>
@@ -15,7 +15,7 @@ const { account, connected, logout } = useSso()
            qui tient le pont vers x-core. -->
       <UBadge :color="connected ? 'success' : 'neutral'" variant="subtle" size="sm">
         <span class="size-1.5 rounded-full" :class="connected ? 'bg-green-400' : 'bg-slate-500'" />
-        {{ connected ? 'temps réel' : 'hors ligne' }}
+        {{ connected ? "temps réel" : "hors ligne" }}
       </UBadge>
 
       <div v-if="account" class="flex items-center gap-2">

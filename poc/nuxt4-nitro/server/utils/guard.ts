@@ -1,4 +1,4 @@
-import type { H3Event } from 'h3'
+import type { H3Event } from "h3";
 
 /**
  * The account behind a request, or a refusal.
@@ -19,7 +19,7 @@ import type { H3Event } from 'h3'
  * and the API refuses with a status where a redirect would hand a component a page
  * of HTML it cannot parse.
  */
-export const requireSession = (event: H3Event) => xcore.middleware.account(event.node.req, event.node.res)
+export const requireSession = (event: H3Event) => xcore.middleware.account(event.node.req, event.node.res);
 
 /**
  * The same, and the rights with it - in ONE call, so authenticating and authorising
@@ -27,4 +27,4 @@ export const requireSession = (event: H3Event) => xcore.middleware.account(event
  * a route that forgot the first would be asserting rights against nobody.
  */
 export const requirePermissions = (event: H3Event, ...actions: string[]) =>
-  xcore.middleware.account(event.node.req, event.node.res, ...actions)
+  xcore.middleware.account(event.node.req, event.node.res, ...actions);

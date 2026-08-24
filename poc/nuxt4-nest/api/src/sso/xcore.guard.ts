@@ -45,10 +45,7 @@ export class XcoreGuard implements CanActivate {
     req.ssoTokens = resolved.tokens;
     req.ssoUserId = resolved.userId;
 
-    const actions = this.reflector.getAllAndOverride<string[]>(PERMISSIONS, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const actions = this.reflector.getAllAndOverride<string[]>(PERMISSIONS, [context.getHandler(), context.getClass()]);
     // Throws FORBIDDEN naming what is missing.
     if (actions?.length) this.xcore.bridge.assert(req, ...actions);
     return true;

@@ -1,12 +1,12 @@
-import type { RowDataPacket } from 'mysql2/promise'
+import type { RowDataPacket } from "mysql2/promise";
 
 interface ServiceRow extends RowDataPacket {
-  id: number
-  name: string
-  kind: string
-  status: string
-  host: string
-  updated_at: Date
+  id: number;
+  name: string;
+  kind: string;
+  status: string;
+  host: string;
+  updated_at: Date;
 }
 
 /**
@@ -17,11 +17,9 @@ interface ServiceRow extends RowDataPacket {
  * nothing beyond a session, which is the ordinary case.
  */
 export default defineEventHandler(async (event) => {
-  await requireSession(event)
+  await requireSession(event);
 
-  const rows = await dbSelect<ServiceRow>(
-    'SELECT id, name, kind, status, host, updated_at FROM services ORDER BY id',
-  )
+  const rows = await dbSelect<ServiceRow>("SELECT id, name, kind, status, host, updated_at FROM services ORDER BY id");
 
   return rows.map((row) => ({
     id: row.id,
@@ -30,5 +28,5 @@ export default defineEventHandler(async (event) => {
     status: row.status,
     host: row.host,
     updatedAt: new Date(row.updated_at).toISOString(),
-  }))
-})
+  }));
+});

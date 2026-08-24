@@ -1,12 +1,11 @@
 node_modules
 dist
 coverage
-packages
 .nuxt
+.next
 .output
+.data
 .trash
-
-# The POC is a Nuxt application with Nuxt's own conventions - single quotes, no
-# semicolons - and this library's are the opposite. Formatting it from here would
-# rewrite every line of it to prove nothing.
-poc
+pnpm-lock.yaml
+package-lock.json
+vendor

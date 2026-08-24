@@ -1,4 +1,4 @@
-import type { RowDataPacket } from 'mysql2/promise'
+import type { RowDataPacket } from "mysql2/promise";
 
 /**
  * The schema, and what is NOT in it any more.
@@ -23,7 +23,7 @@ const SCHEMA = [
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-    // ── REPRISE DE L'ANCIENNE FORME, UNE FOIS ────────────────────────────────
+  // ── REPRISE DE L'ANCIENNE FORME, UNE FOIS ────────────────────────────────
   //
   // `CREATE TABLE IF NOT EXISTS` ne touche pas une table qui existe deja, et les
   // deploiements appaires avant cette version en portent une sans `type`, avec des
@@ -60,7 +60,7 @@ const SCHEMA = [
     host VARCHAR(120) NOT NULL,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-]
+];
 
 /**
  * What the local authentication left behind, dropped on the way through.
@@ -69,38 +69,33 @@ const SCHEMA = [
  * beside a login" rather than "the SSO INSTEAD OF one", and the reflex this exists
  * to remove is exactly that: keeping a local session "just in case".
  */
-const REPLACED_BY_THE_SSO = ['sessions', 'users']
+const REPLACED_BY_THE_SSO = ["sessions", "users"];
 
 const DEMO_SERVICES = [
-  ['queue-worker', 'AMQP', 'running', 'node-a'],
-  ['object-storage', 'S3', 'running', 'node-b'],
-  ['relational-db', 'MariaDB', 'running', 'node-a'],
-  ['reverse-proxy', 'HTTP', 'degraded', 'edge-1'],
-  ['batch-indexer', 'Cron', 'stopped', 'node-c'],
-]
+  ["queue-worker", "AMQP", "running", "node-a"],
+  ["object-storage", "S3", "running", "node-b"],
+  ["relational-db", "MariaDB", "running", "node-a"],
+  ["reverse-proxy", "HTTP", "degraded", "edge-1"],
+  ["batch-indexer", "Cron", "stopped", "node-c"],
+];
 
 async function waitForDb() {
   for (let attempt = 1; attempt <= 60; attempt++) {
     try {
-      await dbSelect('SELECT 1')
-      return
+      await dbSelect("SELECT 1");
+      return;
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
-  throw new Error('database unreachable')
+  throw new Error("database unreachable");
 }
 
 async function seed() {
-  const services = await dbSelect<RowDataPacket>('SELECT COUNT(*) AS total FROM services')
+  const services = await dbSelect<RowDataPacket>("SELECT COUNT(*) AS total FROM services");
   if (Number(services[0]?.total ?? 0) === 0) {
     for (const [name, kind, status, host] of DEMO_SERVICES) {
-      await dbExecute('INSERT INTO services (name, kind, status, host) VALUES (?, ?, ?, ?)', [
-        name,
-        kind,
-        status,
-        host,
-      ])
+      await dbExecute("INSERT INTO services (name, kind, status, host) VALUES (?, ?, ?, ?)", [name, kind, status, host]);
     }
   }
 }
@@ -120,19 +115,19 @@ async function seed() {
  * So the dependency is stated instead of assumed: whoever needs the shelf awaits
  * this, and it does its work once however many callers there are.
  */
-let building: Promise<void> | null = null
+let building: Promise<void> | null = null;
 
 export function schemaReady() {
   building ??= (async () => {
-    await waitForDb()
+    await waitForDb();
     for (const statement of SCHEMA) {
-      await dbExecute(statement)
+      await dbExecute(statement);
     }
     for (const table of REPLACED_BY_THE_SSO) {
-      await dbExecute(`DROP TABLE IF EXISTS ${table}`)
+      await dbExecute(`DROP TABLE IF EXISTS ${table}`);
     }
-    await seed()
-  })()
+    await seed();
+  })();
 
-  return building
+  return building;
 }

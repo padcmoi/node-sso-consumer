@@ -19,9 +19,9 @@ export default defineNitroPlugin(async (nitro) => {
   // while the tables were still being created reported `not-paired` on a token that
   // was perfectly good, and named the store in a message nobody would connect to
   // plugin ordering. Nitro does not await its plugins; this does.
-  await schemaReady()
+  await schemaReady();
 
-  const started = await xcore.start()
+  const started = await xcore.start();
 
   if (!started.ok) {
     // Said again, in this application's own words, because the state it leaves
@@ -29,9 +29,9 @@ export default defineNitroPlugin(async (nitro) => {
     // `401` until an operator fixes the line above.
     console.error(
       `[poc] the SSO is not serving (${started.status}). ` +
-        'Mint an install token on x-core, under « Portails applicatifs », put it in ' +
-        '`server/utils/xcore.ts` and boot again.',
-    )
+        "Mint an install token on x-core, under « Portails applicatifs », put it in " +
+        "`server/utils/xcore.ts` and boot again."
+    );
   }
 
   // ── HANGING THE BRIDGE ON THE HTTP SERVER ─────────────────────────────────
@@ -47,9 +47,9 @@ export default defineNitroPlugin(async (nitro) => {
   //
   // The bridge returns for every upgrade that is not its own, so Nuxt's own HMR
   // socket in dev is untouched, and its path is matched EXACTLY.
-  let hung = false
-  nitro.hooks.hook('request', (event) => {
-    if (hung) return
+  let hung = false;
+  nitro.hooks.hook("request", (event) => {
+    if (hung) return;
 
     // ESCAPE HATCH, and the only one in this POC. Node sets `server` on every socket
     // a server accepted, and does not declare it in its own types - so there is no
@@ -57,16 +57,16 @@ export default defineNitroPlugin(async (nitro) => {
     // request that somehow carries none leaves `hung` false and the next one tries
     // again.
     const socket = event.node.req.socket as unknown as {
-      server?: Parameters<typeof xcore.realtime.attach>[0]
-    }
-    if (!socket.server) return
+      server?: Parameters<typeof xcore.realtime.attach>[0];
+    };
+    if (!socket.server) return;
 
-    hung = true
-    xcore.realtime.attach(socket.server)
-    console.info('[poc] realtime bridge listening on /_ws/realtime')
-  })
+    hung = true;
+    xcore.realtime.attach(socket.server);
+    console.info("[poc] realtime bridge listening on /_ws/realtime");
+  });
 
   // A process that exits without letting go leaves a consumer registered on the
   // broker until its heartbeat times out, and the next boot finds two.
-  nitro.hooks.hook('close', () => xcore.close())
-})
+  nitro.hooks.hook("close", () => xcore.close());
+});

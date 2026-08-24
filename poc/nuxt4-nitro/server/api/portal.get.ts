@@ -13,4 +13,4 @@
  * No session is required to read it. It is a public URL and it is the one thing
  * somebody with no session legitimately needs.
  */
-export default defineEventHandler(() => ({ url: xcore.portalUrl || null }))
+export default defineEventHandler(() => ({ url: xcore.portalUrl || null }));

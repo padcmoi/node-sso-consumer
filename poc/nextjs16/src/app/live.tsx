@@ -1,7 +1,7 @@
-'use client'
+"use client";
 
-import { useEffect, useState } from 'react'
-import { createSsoClient, signInUrl, type SsoBrowserClient } from '@gestionpratique/node-sso-consumer/client'
+import { useEffect, useState } from "react";
+import { createSsoClient, signInUrl, type SsoBrowserClient } from "@gestionpratique/node-sso-consumer/client";
 
 /**
  * La moitié navigateur, et c'est le même fichier que dans les deux POC Nuxt : du
@@ -15,14 +15,14 @@ import { createSsoClient, signInUrl, type SsoBrowserClient } from '@gestionprati
  * d'ici en quelques secondes, sans rechargement et sans requête.
  */
 export function Live({ portalUrl, initialActions }: { portalUrl: string | null; initialActions: string[] }) {
-  const [connected, setConnected] = useState(false)
-  const [actions, setActions] = useState(initialActions)
+  const [connected, setConnected] = useState(false);
+  const [actions, setActions] = useState(initialActions);
 
   useEffect(() => {
-    let client: SsoBrowserClient | undefined
+    let client: SsoBrowserClient | undefined;
 
     client = createSsoClient({
-      basePath: '/api/auth',
+      basePath: "/api/auth",
       // `me.permissions.global`, ce que la librairie répond tel quel : tout ce que le
       // compte détient dans l'écosystème, namespacé.
       //
@@ -37,13 +37,13 @@ export function Live({ portalUrl, initialActions }: { portalUrl: string | null; 
       // Déconnecté au portail, compte désactivé, ou accès à CETTE application
       // révoqué. On part : rien ne se reconnecte dans une session terminée, et la
       // frame suivante serait refusée pour la même raison.
-      onSignedOut: () => window.location.assign(portalUrl || signInUrl('/api/auth')),
+      onSignedOut: () => window.location.assign(portalUrl || signInUrl("/api/auth")),
       onConnectionChange: setConnected,
-    })
+    });
 
-    void client.connect()
-    return () => client?.close()
-  }, [portalUrl])
+    void client.connect();
+    return () => client?.close();
+  }, [portalUrl]);
 
   return (
     <div className="space-y-4">
@@ -55,9 +55,9 @@ export function Live({ portalUrl, initialActions }: { portalUrl: string | null; 
       </div>
 
       <div className="flex items-center gap-2 text-xs">
-        <span className={`size-1.5 rounded-full ${connected ? 'bg-green-400' : 'bg-slate-500'}`} />
-        <span className={connected ? 'text-green-400' : 'text-slate-500'}>
-          {connected ? 'temps réel ouvert' : 'temps réel fermé'}
+        <span className={`size-1.5 rounded-full ${connected ? "bg-green-400" : "bg-slate-500"}`} />
+        <span className={connected ? "text-green-400" : "text-slate-500"}>
+          {connected ? "temps réel ouvert" : "temps réel fermé"}
         </span>
         <span className="text-slate-600">navigateur → serveur custom → x-core</span>
       </div>
@@ -77,5 +77,5 @@ export function Live({ portalUrl, initialActions }: { portalUrl: string | null; 
         )}
       </div>
     </div>
-  )
+  );
 }

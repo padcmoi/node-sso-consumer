@@ -6,5 +6,5 @@
  * having finished is a race, not an order. Both call `schemaReady()`, it runs once.
  */
 export default defineNitroPlugin(async () => {
-  await schemaReady()
-})
+  await schemaReady();
+});

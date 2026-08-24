@@ -1,11 +1,11 @@
 <script setup lang="ts">
-const { data: services, status } = await useFetch('/api/services')
+const { data: services, status } = await useFetch("/api/services");
 
 function colorFor(status: string) {
-  if (status === 'running') return 'success'
-  if (status === 'degraded') return 'warning'
-  if (status === 'stopped') return 'error'
-  return 'neutral'
+  if (status === "running") return "success";
+  if (status === "degraded") return "warning";
+  if (status === "stopped") return "error";
+  return "neutral";
 }
 </script>
 
@@ -34,11 +34,7 @@ function colorFor(status: string) {
             <tr v-if="status === 'pending'">
               <td colspan="4" class="px-4 py-6 text-center text-slate-500">Chargement...</td>
             </tr>
-            <tr
-              v-for="service in services"
-              :key="service.id"
-              class="hover:bg-white/5"
-            >
+            <tr v-for="service in services" :key="service.id" class="hover:bg-white/5">
               <td class="px-4 py-3 font-medium text-slate-100">{{ service.name }}</td>
               <td class="px-4 py-3 text-slate-400">{{ service.kind }}</td>
               <td class="px-4 py-3 font-mono text-xs text-slate-400">{{ service.host }}</td>

@@ -18,7 +18,7 @@ const SCHEMA = [
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-    // ── REPRISE DE L'ANCIENNE FORME, UNE FOIS ────────────────────────────────
+  // ── REPRISE DE L'ANCIENNE FORME, UNE FOIS ────────────────────────────────
   //
   // `CREATE TABLE IF NOT EXISTS` ne touche pas une table qui existe deja, et les
   // deploiements appaires avant cette version en portent une sans `type`, avec des
@@ -161,9 +161,7 @@ export const credentialsOf = (pool: Pool) => ({
    * the next restart.
    */
   async get(clientId: string) {
-    const [rows] = await pool.query<CredentialRow[]>("SELECT secret_hash FROM hmac_credential WHERE client_id = ?", [
-      clientId,
-    ]);
+    const [rows] = await pool.query<CredentialRow[]>("SELECT secret_hash FROM hmac_credential WHERE client_id = ?", [clientId]);
     return rows[0]?.secret_hash ?? null;
   },
 

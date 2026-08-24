@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { SsoMe } from '@gestionpratique/node-sso-consumer'
+import type { SsoMe } from "@gestionpratique/node-sso-consumer";
 
-const { account, actions, connected } = useSso()
+const { account, actions, connected } = useSso();
 
 /**
  * La même session, lue une seconde fois - mais par un contrôleur NestJS derrière son
@@ -12,9 +12,9 @@ const { account, actions, connected } = useSso()
  * lit `req.me` sans écrire une ligne de session. Si ce bloc répond, le guard Nest
  * fonctionne contre le vrai x-core.
  */
-const { data: guarded } = await useFetch<{ data: SsoMe }>('/api/me')
+const { data: guarded } = await useFetch<{ data: SsoMe }>("/api/me");
 
-const payload = computed(() => JSON.stringify(account.value, null, 2))
+const payload = computed(() => JSON.stringify(account.value, null, 2));
 </script>
 
 <template>
@@ -35,12 +35,12 @@ const payload = computed(() => JSON.stringify(account.value, null, 2))
       </UCard>
       <UCard :ui="{ root: 'bg-slate-900/60 ring-white/10' }">
         <p class="text-xs uppercase tracking-wide text-slate-500">Temps réel</p>
-        <p class="mt-2 text-2xl font-semibold text-white">{{ connected ? 'ouvert' : 'fermé' }}</p>
+        <p class="mt-2 text-2xl font-semibold text-white">{{ connected ? "ouvert" : "fermé" }}</p>
         <p class="mt-1 text-xs text-slate-500">navigateur → Nuxt → API → x-core</p>
       </UCard>
       <UCard :ui="{ root: 'bg-slate-900/60 ring-white/10' }">
         <p class="text-xs uppercase tracking-wide text-slate-500">Guard NestJS</p>
-        <p class="mt-2 text-2xl font-semibold text-white">{{ guarded?.data ? 'passé' : '-' }}</p>
+        <p class="mt-2 text-2xl font-semibold text-white">{{ guarded?.data ? "passé" : "-" }}</p>
         <p class="mt-1 truncate text-xs text-slate-500">GET /api/me</p>
       </UCard>
     </div>
@@ -65,7 +65,7 @@ const payload = computed(() => JSON.stringify(account.value, null, 2))
         </div>
         <div class="min-w-0">
           <dt class="text-xs uppercase tracking-wide text-slate-500">Vu par le contrôleur Nest</dt>
-          <dd class="mt-1 truncate text-sm text-slate-200">{{ guarded?.data?.user.email ?? '-' }}</dd>
+          <dd class="mt-1 truncate text-sm text-slate-200">{{ guarded?.data?.user.email ?? "-" }}</dd>
         </div>
       </dl>
     </UCard>

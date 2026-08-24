@@ -1,5 +1,5 @@
-import type { SsoMe } from '@gestionpratique/node-sso-consumer'
-import type { SsoBrowserClient } from '@gestionpratique/node-sso-consumer/client'
+import type { SsoMe } from "@gestionpratique/node-sso-consumer";
+import type { SsoBrowserClient } from "@gestionpratique/node-sso-consumer/client";
 
 /**
  * The one socket this console holds, kept here rather than in the plugin that opens
@@ -14,10 +14,10 @@ import type { SsoBrowserClient } from '@gestionpratique/node-sso-consumer/client
  * the browser half does not know whether the session is held by the Nitro underneath
  * it or by a NestJS API two containers away. It only ever talks to this origin.
  */
-let client: SsoBrowserClient | null = null
+let client: SsoBrowserClient | null = null;
 
-export const setSsoClient = (opened: SsoBrowserClient) => (client = opened)
-export const useSsoClient = () => client
+export const setSsoClient = (opened: SsoBrowserClient) => (client = opened);
+export const useSsoClient = () => client;
 
 /**
  * The account this page holds, and whether the stream is up.
@@ -28,8 +28,8 @@ export const useSsoClient = () => client
  * It is NOT persisted, and must not be. A store written to `localStorage` would be a
  * session outliving the one it mirrors, which is the thing this whole model forbids.
  */
-export const useSsoAccount = () => useState<SsoMe | null>('sso.account', () => null)
-export const useSsoConnected = () => useState('sso.connected', () => false)
+export const useSsoAccount = () => useState<SsoMe | null>("sso.account", () => null);
+export const useSsoConnected = () => useState("sso.connected", () => false);
 
 /**
  * Where a browser goes when it has no session, and where a sign-out lands.
@@ -38,11 +38,11 @@ export const useSsoConnected = () => useState('sso.connected', () => false)
  * portal lives, it answers the address at pairing, and a copy in a build would keep
  * sending readers to one that has moved.
  */
-export const useSsoPortal = () => useState<string | null>('sso.portal', () => null)
+export const useSsoPortal = () => useState<string | null>("sso.portal", () => null);
 
 export const useSso = () => {
-  const account = useSsoAccount()
-  const connected = useSsoConnected()
+  const account = useSsoAccount();
+  const connected = useSsoConnected();
 
   /**
    * The actions this application's account holds, without their prefix. Asked of the
@@ -51,9 +51,9 @@ export const useSso = () => {
   const actions = computed(() => {
     // `account` is in the dependency list on purpose: the client is not reactive, so
     // this recomputes when the account it was read from changes.
-    void account.value
-    return useSsoClient()?.actions() ?? []
-  })
+    void account.value;
+    return useSsoClient()?.actions() ?? [];
+  });
 
   return {
     account,
@@ -65,5 +65,5 @@ export const useSso = () => {
      */
     can: (permission: string) => Boolean(account.value?.permissions.global.includes(permission)),
     logout: () => useSsoClient()?.logout(),
-  }
-}
+  };
+};

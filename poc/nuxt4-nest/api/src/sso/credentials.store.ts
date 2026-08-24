@@ -37,9 +37,7 @@ export class CredentialsStore {
    * everything, with nothing naming the cause.
    */
   async get(clientId: string) {
-    const rows = await this.db.select<CredentialRow>("SELECT secret_hash FROM hmac_credential WHERE client_id = ?", [
-      clientId,
-    ]);
+    const rows = await this.db.select<CredentialRow>("SELECT secret_hash FROM hmac_credential WHERE client_id = ?", [clientId]);
     return rows[0]?.secret_hash ?? null;
   }
 

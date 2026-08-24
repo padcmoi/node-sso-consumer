@@ -12,4 +12,4 @@ export default {
   // Several lockfiles live above this folder, and Turbopack picks a root from them.
   // Named here so the choice is this file's rather than a heuristic's.
   turbopack: { root: import.meta.dirname },
-}
+};

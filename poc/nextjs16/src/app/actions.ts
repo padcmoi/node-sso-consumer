@@ -1,9 +1,9 @@
-'use server'
+"use server";
 
-import { redirect } from 'next/navigation'
-import { SsoError } from '@gestionpratique/node-sso-consumer'
-import { xcore } from '@/sso/runtime'
-import { currentExchange, requireAccount, requirePermissions } from '@/sso/session'
+import { redirect } from "next/navigation";
+import { SsoError } from "@gestionpratique/node-sso-consumer";
+import { xcore } from "@/sso/runtime";
+import { currentExchange, requireAccount, requirePermissions } from "@/sso/session";
 
 /**
  * ── LES SERVER ACTIONS, ET CE QU'ELLES SONT VRAIMENT ───────────────────────────
@@ -32,15 +32,15 @@ import { currentExchange, requireAccount, requirePermissions } from '@/sso/sessi
  * exactement ce qu'écrirait un handler Express, depuis une Server Action.
  */
 export async function signOut() {
-  const { req, res } = currentExchange()
-  const exit = await xcore().logout(req, res)
-  redirect(exit || '/')
+  const { req, res } = currentExchange();
+  const exit = await xcore().logout(req, res);
+  redirect(exit || "/");
 }
 
 interface ProbeState {
-  status: 'idle' | 'granted' | 'refused'
-  action?: string
-  message?: string
+  status: "idle" | "granted" | "refused";
+  action?: string;
+  message?: string;
 }
 
 /**
@@ -51,20 +51,20 @@ interface ProbeState {
  * pas : le refus vient d'ici, pas de l'écran.
  */
 export async function probePermission(_previous: ProbeState, form: FormData) {
-  const asked = String(form.get('action') ?? '').trim()
-  if (!asked) return { status: 'idle' } satisfies ProbeState
+  const asked = String(form.get("action") ?? "").trim();
+  if (!asked) return { status: "idle" } satisfies ProbeState;
 
   try {
-    requirePermissions(asked)
-    return { status: 'granted', action: asked } satisfies ProbeState
+    requirePermissions(asked);
+    return { status: "granted", action: asked } satisfies ProbeState;
   } catch (error) {
     // FORBIDDEN est le seul refus qui parle du COMPTE : il est connecté, x-core a
     // répondu pour lui, et il ne détient pas ce droit. Il se dit là où le lecteur
     // se trouve. Tout le reste remonte.
-    if (error instanceof SsoError && error.code === 'FORBIDDEN') {
-      return { status: 'refused', action: asked, message: error.message } satisfies ProbeState
+    if (error instanceof SsoError && error.code === "FORBIDDEN") {
+      return { status: "refused", action: asked, message: error.message } satisfies ProbeState;
     }
-    throw error
+    throw error;
   }
 }
 
@@ -76,6 +76,6 @@ export async function probePermission(_previous: ProbeState, form: FormData) {
  * requête. Dix composants qui la lisent coûtent zéro appel.
  */
 export async function readAccount() {
-  const me = requireAccount()
-  return { email: me.user.email, actions: me.permissions.global }
+  const me = requireAccount();
+  return { email: me.user.email, actions: me.permissions.global };
 }

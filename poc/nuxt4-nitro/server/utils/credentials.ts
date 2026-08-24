@@ -1,4 +1,4 @@
-import type { RowDataPacket } from 'mysql2/promise'
+import type { RowDataPacket } from "mysql2/promise";
 
 /**
  * Where this application keeps the HMAC hash it signs x-core's API with.
@@ -21,7 +21,7 @@ import type { RowDataPacket } from 'mysql2/promise'
  * `declare()` retries on it.
  */
 interface CredentialRow extends RowDataPacket {
-  secret_hash: string
+  secret_hash: string;
 }
 
 export const credentials = {
@@ -33,23 +33,20 @@ export const credentials = {
    * everything, with nothing naming the cause.
    */
   async get(clientId: string) {
-    const rows = await dbSelect<CredentialRow>(
-      'SELECT secret_hash FROM hmac_credential WHERE client_id = ?',
-      [clientId],
-    )
-    return rows[0]?.secret_hash ?? null
+    const rows = await dbSelect<CredentialRow>("SELECT secret_hash FROM hmac_credential WHERE client_id = ?", [clientId]);
+    return rows[0]?.secret_hash ?? null;
   },
 
   /** Store what arrived on the queue. Called on the first delivery and every rotation. */
   async set(clientId: string, secretHash: string) {
     await dbExecute(
-      'INSERT INTO hmac_credential (client_id, secret_hash) VALUES (?, ?) ON DUPLICATE KEY UPDATE secret_hash = VALUES(secret_hash)',
-      [clientId, secretHash],
-    )
+      "INSERT INTO hmac_credential (client_id, secret_hash) VALUES (?, ?) ON DUPLICATE KEY UPDATE secret_hash = VALUES(secret_hash)",
+      [clientId, secretHash]
+    );
   },
 
   /** The provider says this identity is gone. */
   async remove(clientId: string) {
-    await dbExecute('DELETE FROM hmac_credential WHERE client_id = ?', [clientId])
+    await dbExecute("DELETE FROM hmac_credential WHERE client_id = ?", [clientId]);
   },
-}
+};

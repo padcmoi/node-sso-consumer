@@ -1,10 +1,10 @@
-'use client'
+"use client";
 
-import { useActionState } from 'react'
-import { signIn } from './actions'
+import { useActionState } from "react";
+import { signIn } from "./actions";
 
 export function LoginForm() {
-  const [state, submit, pending] = useActionState(signIn, { refused: false })
+  const [state, submit, pending] = useActionState(signIn, { refused: false });
 
   return (
     <form action={submit} className="space-y-4">
@@ -37,8 +37,8 @@ export function LoginForm() {
         disabled={pending}
         className="w-full rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
       >
-        {pending ? '…' : 'Se connecter'}
+        {pending ? "…" : "Se connecter"}
       </button>
     </form>
-  )
+  );
 }

@@ -1,5 +1,5 @@
-import * as H3 from 'h3'
-import { isProxiedRoute, PROXY_CFG } from '../proxy.config'
+import * as H3 from "h3";
+import { isProxiedRoute, PROXY_CFG } from "../proxy.config";
 
 // Everything under /api, relayed to the API and nothing else. This handler is the
 // whole backend of this console.
@@ -11,10 +11,10 @@ import { isProxiedRoute, PROXY_CFG } from '../proxy.config'
 // let Nitro fall through to its own 204, which reads as success to a caller and
 // tells them nothing.
 export default H3.defineEventHandler(async (event) => {
-  const url = H3.getRequestURL(event)
+  const url = H3.getRequestURL(event);
 
   if (!isProxiedRoute(event.method, url.pathname)) {
-    throw H3.createError({ statusCode: 404, statusMessage: 'Not Found', message: 'Not Found' })
+    throw H3.createError({ statusCode: 404, statusMessage: "Not Found", message: "Not Found" });
   }
 
   return H3.proxyRequest(event, `${PROXY_CFG.apiBaseInternal}${url.pathname}${url.search}`, {
@@ -24,7 +24,7 @@ export default H3.defineEventHandler(async (event) => {
       // window, and this end would fetch that window and hand its HTML back under
       // this console's own address - a 200 where the browser was owed a 302, and a
       // page of another origin served as if it were ours.
-      redirect: 'manual',
+      redirect: "manual",
       headers: {
         // `host: false` drops the incoming Host, so the API sees its own address
         // rather than the public one and never builds a link from a header a caller
@@ -35,9 +35,9 @@ export default H3.defineEventHandler(async (event) => {
         // address, and without these it would be filed under this container's -
         // one address for every reader, which is what a provider checking a session
         // against where it was opened from would then be comparing.
-        'x-forwarded-for': H3.getRequestIP(event, { xForwardedFor: true }) ?? '',
-        'x-forwarded-proto': H3.getRequestProtocol(event),
-        'x-forwarded-host': H3.getRequestHost(event),
+        "x-forwarded-for": H3.getRequestIP(event, { xForwardedFor: true }) ?? "",
+        "x-forwarded-proto": H3.getRequestProtocol(event),
+        "x-forwarded-host": H3.getRequestHost(event),
         // PUT BACK BY HAND, because h3 DROPS IT. `accept` sits in h3's own
         // `ignoredHeaders` beside `accept-encoding` and `host`, so
         // `getProxyRequestHeaders` never returns it and the API cannot see what the
@@ -46,8 +46,8 @@ export default H3.defineEventHandler(async (event) => {
         // follows redirects hands the component the portal's HTML where it expected
         // JSON. Content negotiation is simply impossible behind this relay without
         // this line.
-        accept: H3.getHeader(event, 'accept') ?? '',
+        accept: H3.getHeader(event, "accept") ?? "",
       },
     },
-  })
-})
+  });
+});

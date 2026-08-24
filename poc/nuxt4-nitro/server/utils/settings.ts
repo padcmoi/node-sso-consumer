@@ -1,4 +1,4 @@
-import type { RowDataPacket } from 'mysql2/promise'
+import type { RowDataPacket } from "mysql2/promise";
 
 /**
  * This application's own key/value shelf, and one of the two things it lends the
@@ -18,9 +18,9 @@ import type { RowDataPacket } from 'mysql2/promise'
  * identity, the callback, the gate or the broker is typed by anybody.
  */
 interface SettingRow extends RowDataPacket {
-  key: string
-  type: string
-  value: string
+  key: string;
+  type: string;
+  value: string;
 }
 
 export const settings = {
@@ -32,18 +32,18 @@ export const settings = {
    * filters nothing, and that is a declaration rather than an absence.
    */
   async all() {
-    const rows = await dbSelect<SettingRow>('SELECT `key`, `type`, `value` FROM app_settings')
+    const rows = await dbSelect<SettingRow>("SELECT `key`, `type`, `value` FROM app_settings");
 
-    const held: Record<string, unknown> = {}
+    const held: Record<string, unknown> = {};
     for (const row of rows) {
-      const value = readSetting(row.type, row.value)
+      const value = readSetting(row.type, row.value);
       // A row somebody edited by hand, or one whose type and value no longer agree.
       // Skipped rather than fatal: a store that refuses to be read at all would stop
       // a boot over one bad line, and the library reads an absent key as never set.
-      if (value === UNREADABLE) console.warn(`[settings] ${row.key} is not a readable ${row.type} and was ignored`)
-      else held[row.key] = value
+      if (value === UNREADABLE) console.warn(`[settings] ${row.key} is not a readable ${row.type} and was ignored`);
+      else held[row.key] = value;
     }
-    return held
+    return held;
   },
 
   /**
@@ -56,29 +56,29 @@ export const settings = {
    * paired without holding what that announces.
    */
   async upsertAll(values: Record<string, unknown>) {
-    const entries = Object.entries(values)
-    if (!entries.length) return
+    const entries = Object.entries(values);
+    if (!entries.length) return;
 
-    const connection = await useDb().getConnection()
+    const connection = await useDb().getConnection();
     try {
-      await connection.beginTransaction()
+      await connection.beginTransaction();
       for (const [key, value] of entries) {
-        const { type, text } = writeSetting(value)
+        const { type, text } = writeSetting(value);
         await connection.query(
-          'INSERT INTO app_settings (`key`, `type`, `value`) VALUES (?, ?, ?) ' +
-            'ON DUPLICATE KEY UPDATE `type` = VALUES(`type`), `value` = VALUES(`value`)',
-          [key, type, text],
-        )
+          "INSERT INTO app_settings (`key`, `type`, `value`) VALUES (?, ?, ?) " +
+            "ON DUPLICATE KEY UPDATE `type` = VALUES(`type`), `value` = VALUES(`value`)",
+          [key, type, text]
+        );
       }
-      await connection.commit()
+      await connection.commit();
     } catch (error) {
-      await connection.rollback()
-      throw error
+      await connection.rollback();
+      throw error;
     } finally {
-      connection.release()
+      connection.release();
     }
   },
-}
+};
 
 /**
  * ── WHY `type` IS A COLUMN AND NOT A CONVENTION ────────────────────────────────
@@ -97,41 +97,41 @@ export const settings = {
  * nothing has to be tellable from a key never written - absent means 'never set',
  * which is what makes an empty gate a declaration rather than an omission.
  */
-export type AppSettingType = 'string' | 'number' | 'boolean' | 'array' | 'object' | 'null'
+export type AppSettingType = "string" | "number" | "boolean" | "array" | "object" | "null";
 
 /** A row that cannot be read, told apart from a row holding `null`. */
-const UNREADABLE = Symbol('unreadable')
+const UNREADABLE = Symbol("unreadable");
 
 /** The stored pair, back as the value the library handed over. */
 const readSetting = (type: string, value: string) => {
-  if (type === 'null') return null
-  if (type === 'string') return value
+  if (type === "null") return null;
+  if (type === "string") return value;
 
-  let parsed: unknown
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(value)
+    parsed = JSON.parse(value);
   } catch {
-    return UNREADABLE
+    return UNREADABLE;
   }
 
   // The declared type is CHECKED against what came back rather than trusted: a row
   // saying `number` whose value parses to an array is corrupt, and letting it
   // through would put a shape downstream that nothing expects.
-  if (type === 'array') return Array.isArray(parsed) ? parsed : UNREADABLE
-  if (type === 'object') return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : UNREADABLE
-  if (type === 'number') return typeof parsed === 'number' ? parsed : UNREADABLE
-  if (type === 'boolean') return typeof parsed === 'boolean' ? parsed : UNREADABLE
-  return UNREADABLE
-}
+  if (type === "array") return Array.isArray(parsed) ? parsed : UNREADABLE;
+  if (type === "object") return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed : UNREADABLE;
+  if (type === "number") return typeof parsed === "number" ? parsed : UNREADABLE;
+  if (type === "boolean") return typeof parsed === "boolean" ? parsed : UNREADABLE;
+  return UNREADABLE;
+};
 
 const typeOf = (value: unknown): AppSettingType => {
-  if (value === null || value === undefined) return 'null'
-  if (Array.isArray(value)) return 'array'
-  if (typeof value === 'number') return 'number'
-  if (typeof value === 'boolean') return 'boolean'
-  if (typeof value === 'object') return 'object'
-  return 'string'
-}
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "object") return "object";
+  return "string";
+};
 
 /**
  * The value, split into the pair the table holds.
@@ -141,6 +141,6 @@ const typeOf = (value: unknown): AppSettingType => {
  * looking at it with a SQL client - which is half the point of naming the type.
  */
 const writeSetting = (value: unknown) => {
-  const type = typeOf(value)
-  return { type, text: type === 'string' ? String(value) : JSON.stringify(value ?? null) }
-}
+  const type = typeOf(value);
+  return { type, text: type === "string" ? String(value) : JSON.stringify(value ?? null) };
+};

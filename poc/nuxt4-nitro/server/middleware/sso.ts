@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 /**
  * The five routes the library carries, and the guard that stands in front of the
@@ -35,17 +35,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
  */
 const run = (handler: ReturnType<typeof xcore.middleware.routes>, req: IncomingMessage, res: ServerResponse) =>
   new Promise<void>((resolve, reject) => {
-    Promise.resolve(handler(req, res, (error) => (error ? reject(error) : resolve()))).then(() => resolve(), reject)
-  })
+    Promise.resolve(handler(req, res, (error) => (error ? reject(error) : resolve()))).then(() => resolve(), reject);
+  });
 
 export default defineEventHandler(async (event) => {
-  const { req, res } = event.node
+  const { req, res } = event.node;
 
   // The five routes. Answering nothing means this was not one of them.
-  await run(xcore.middleware.routes(), req, res)
+  await run(xcore.middleware.routes(), req, res);
 
   // Answered by the library: nothing else runs for this request.
-  if (res.writableEnded) return
+  if (res.writableEnded) return;
 
   // This application's OWN API answers as an API: its handlers call the guard
   // themselves and refuse with a status, because redirecting an XHR to the portal
@@ -55,12 +55,12 @@ export default defineEventHandler(async (event) => {
   // That split is the ONE thing this file decides, because it is the one thing the
   // library cannot know: which paths belong to this application's API. What to DO
   // in each case is the library's, and stays there.
-  if (event.path.startsWith('/api/')) return
+  if (event.path.startsWith("/api/")) return;
 
   // The pages, behind the library's own guard. Without it the shell rendered for
   // anybody: `useSso()` handed the components a null account, they painted zeros,
   // and the only thing refusing was the API underneath - so what a reader saw was
   // a signed-in application containing nothing, on an application that had never
   // been paired with anything.
-  await run(xcore.middleware.requireSession(), req, res)
-})
+  await run(xcore.middleware.requireSession(), req, res);
+});
