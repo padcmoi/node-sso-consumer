@@ -12,6 +12,7 @@ coverage/
 !poc/nuxt4-nitro/.env
 !poc/nuxt4-nest/.env
 !poc/nextjs16/.env
+!poc/nuxt4-local/.env
 .DS_Store
 .trash/
 *.tsbuildinfo

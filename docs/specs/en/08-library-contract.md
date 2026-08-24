@@ -64,7 +64,8 @@ hmac.deleteCredential?(clientId)      optional
 environment.load()                    everything, in one read, before anything else
 environment.save(values)              upsert what is given, leave the rest alone
 
-local_accounts?                       a LIST, read only at mode: "local"
+local_accounts?                       a LIST, read only at mode: "local". A record
+                                      carries passwordHash - scrypt, from hashPassword
 errors?(refusal, req, res)            how THIS application says "refused"
 onAccount?(userId, me)                what live pushed
 onSignedOut?(userId)                  the session is over

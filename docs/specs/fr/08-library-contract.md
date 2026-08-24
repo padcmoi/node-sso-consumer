@@ -65,7 +65,9 @@ hmac.deleteCredential?(clientId)      facultatif
 environment.load()                    tout, en une lecture, avant toute chose
 environment.save(values)              upsert ce qui est donné, laisse le reste
 
-local_accounts?                       une LISTE, lue seulement à mode: "local"
+local_accounts?                       une LISTE, lue seulement à mode: "local". Un
+                                      enregistrement porte passwordHash - scrypt,
+                                      produit par hashPassword
 errors?(refusal, req, res)            comment CETTE application dit « refusé »
 onAccount?(userId, me)                ce que live a poussé
 onSignedOut?(userId)                  la session est terminée

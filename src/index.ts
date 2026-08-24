@@ -13,7 +13,7 @@
 // Nothing reads `process.env`, opens a store or holds a secret.
 
 export { XcoreBridge, createXcoreBridge } from "./xcore-bridge.js";
-export type { SsoRefusal, XcoreBridgeOptions, XcoreInjection, XcoreStartResult } from "./bridge/contract.js";
+export type { SsoRefusal, XcoreBridgeOptions, XcoreInjection, XcoreMode, XcoreStartResult } from "./bridge/contract.js";
 
 export { SsoConfigService, type SsoConfigServiceOptions } from "./config.service.js";
 export { SsoAuthService, type SsoAuthServiceOptions, type SsoResolution } from "./auth.service.js";
@@ -55,6 +55,16 @@ export { addressesOf, type ProviderAddresses, type ProviderEndpoint } from "./pr
 
 export { SsoError, isSessionOver, statusOf, type SsoErrorCode } from "./errors.js";
 export type { StandInAccount } from "./session/local-accounts.js";
+
+/**
+ * The pair, and never one of the two.
+ *
+ * An application that creates a local account has to produce exactly what this
+ * library will later read, and asking it to reproduce the format and the scrypt
+ * parameters by hand is asking for the day the two drift apart - which does not
+ * fail loudly, it fails as every password being wrong at once.
+ */
+export { hashPassword, isPasswordHash, verifyPassword } from "./session/password.js";
 
 export { readMe, readSession } from "./parse.js";
 export { seal, unseal } from "./session/seal.js";

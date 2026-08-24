@@ -47,7 +47,7 @@ of x-core on every request and never cached.
 
 ## The file
 
-```ts
+````ts
 import { createXcoreBridge, type SsoLogger, type StandInAccount, type XcoreBridge } from "@gestionpratique/node-sso-consumer";
 
 import { credentials } from "../hmac";
@@ -77,15 +77,24 @@ export interface SsoDeps {
  *   `permissions`  namespaced when they are not already, plus the `_sso_user_<email>`
  *                  group x-core creates for every account
  *
- * The password is in the clear and must be: nothing here claims to be secure, and
- * hashing it would suggest otherwise. What protects this list is that it does not
- * exist in production - `mode: "sso"` never looks at it.
+ * The password is HASHED, scrypt, and produced by `hashPassword` - never written by
+ * hand. This reverses what this guide used to say: the clear-text argument held only
+ * while the directory was a literal in a file, and the same records are meant to move
+ * into a table, which is dumped, backed up and opened with a SQL client. A format that
+ * is right in one place and not the other is a format nobody can move.
+ *
+ * ```ts
+ * import { hashPassword } from "@gestionpratique/node-sso-consumer";
+ * console.log(await hashPassword("julien"));
+ * ```
  */
 const LOCAL_ACCOUNTS = [
   {
     id: "julien",
     email: "julien@example.test",
-    password: "julien",
+    // `await hashPassword("julien")`. The parameters travel with the hash, so a
+    // record written today is still verified after they are raised.
+    passwordHash: "scrypt$16384$8$1$MDEyMzQ1Njc4OWFiY2RlZg$YtynpqNQ8WfUAfUFJ0NsdjFpDxAiDx2VZHa4oO5LRFw",
     firstName: "Julien",
     lastName: "Example",
     // What this account holds. Namespaced or not: `read:user` becomes
@@ -96,7 +105,8 @@ const LOCAL_ACCOUNTS = [
   {
     id: "admin",
     email: "admin@example.test",
-    password: "admin",
+    // `await hashPassword("admin")`.
+    passwordHash: "scrypt$16384$8$1$prcFfJv54XA3LQh6z_5uaw$Eqt4ZCF0KpYc7dq6FfSUNblf23YCHihj2cZgaEOV-x4",
     firstName: "Admin",
     lastName: "Example",
     // Empty, and `isRoot` instead: x-core answers `isRoot: true` for an account that
@@ -406,7 +416,7 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
   });
 
 export type Xcore = ReturnType<typeof createXcore>;
-```
+````
 
 ## Booting it, and shutting it down
 

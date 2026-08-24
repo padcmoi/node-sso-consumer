@@ -61,8 +61,17 @@ const answering = () =>
     .on("PUT", CONFIG_PATH, { status: 204 })
     .global();
 
+// The hash of "julien", written out rather than computed at import: `hashPassword`
+// is scrypt, so computing one here would spend its cost in every run of this file
+// for a value that never changes.
 const LOCAL = [
-  { email: "julien@julien.fr", password: "julien", firstName: "Julien", lastName: "Julien", permissions: ["read:user"] },
+  {
+    email: "julien@julien.fr",
+    passwordHash: "scrypt$16384$8$1$MDEyMzQ1Njc4OWFiY2RlZg$YtynpqNQ8WfUAfUFJ0NsdjFpDxAiDx2VZHa4oO5LRFw",
+    firstName: "Julien",
+    lastName: "Julien",
+    permissions: ["read:user"],
+  },
 ];
 
 describe("local, with a directory or without one", () => {

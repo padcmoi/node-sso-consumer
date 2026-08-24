@@ -91,7 +91,7 @@ export function localSessionOf(ctx: StandInContext, req: WebRequest, res: WebRes
  * Refuses with `null` and says nothing about which half was wrong. Telling a wrong
  * address from a wrong password tells whoever is asking which addresses exist.
  */
-export function signInLocally(
+export async function signInLocally(
   ctx: StandInContext,
   req: WebRequest,
   res: WebResponse,
@@ -101,8 +101,8 @@ export function signInLocally(
     throw new SsoError("NOT_CONFIGURED", "There is no local directory here: signing in goes through the provider");
   }
 
-  const account = signIn(ctx.options.di.local_accounts ?? [], credentials.email, credentials.password);
-  if (!account) return Promise.resolve(null);
+  const account = await signIn(ctx.options.di.local_accounts ?? [], credentials.email, credentials.password);
+  if (!account) return null;
 
   const resolved = meOf(account, ctx.identity.resource ?? "");
   ctx.sessions.write(jarOf(req, res), {
@@ -110,5 +110,5 @@ export function signInLocally(
     tokens: { accessToken: "", accessTokenExpiresAt: "", refreshToken: "", refreshTokenExpiresAt: "" },
   });
   ctx.options.logger?.info?.(`[sso] ${resolved.user.email} signed in against this application's own directory`);
-  return Promise.resolve(resolved);
+  return resolved;
 }

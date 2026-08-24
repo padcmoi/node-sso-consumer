@@ -35,9 +35,19 @@ export interface PermissionReader {
 /**
  * Bind the checks to one resource.
  *
- * `isRoot` needs no special case: a root account comes back holding the whole
- * catalogue, so a plain lookup already covers it. The flag says where the power
- * comes from, which is worth displaying and never worth deciding on.
+ * `isRoot` PASSES EVERYTHING, and it did not use to. The argument for leaving it
+ * out was that a root account comes back holding the whole catalogue, so a plain
+ * lookup already covered it - which is true of x-core and false of the directory an
+ * application lends at `mode: "local"`. Offline there is no catalogue to expand: an
+ * account marked root arrives with whatever list it was written with, and with an
+ * empty one it held nothing at all.
+ *
+ * So the flag decided nothing where it was written down, and the two modes disagreed
+ * about the same account - which is the one divergence this library exists not to
+ * have, and which three files claimed did not exist.
+ *
+ * Reading it costs nothing on the other side: a root account already holds every
+ * entry, so the check is answered before a list is walked rather than differently.
  */
 export function createPermissionReader(resource: string) {
   const prefix = resource ? `${resource}:` : "";
@@ -51,6 +61,7 @@ export function createPermissionReader(resource: string) {
     // No list means no decision, and no decision is a refusal: a gate that opens
     // when it cannot see is not a gate.
     if (!permissions) return false;
+    if (permissions.isRoot) return true;
     return permissions.global.includes(permission(action));
   };
 
@@ -76,5 +87,7 @@ export function createPermissionReader(resource: string) {
 
 /** The same check against a whole string, for a permission this app does not own. */
 export function holds(permissions: SsoPermissions | null | undefined, entry: string) {
-  return Boolean(permissions?.global.includes(entry));
+  if (!permissions) return false;
+  if (permissions.isRoot) return true;
+  return permissions.global.includes(entry);
 }

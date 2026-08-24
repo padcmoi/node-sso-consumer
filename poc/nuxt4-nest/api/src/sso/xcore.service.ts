@@ -150,9 +150,9 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
         // The library fills the rest out to the exact shape x-core answers, so a
         // screen reading `me.profile.city` renders here and renders there.
         //
-        // The password is in the clear and must be: nothing here claims to be
-        // secure, and hashing it would suggest otherwise. What protects this list is
-        // that it is never read in `"sso"`.
+        // A record carries `passwordHash`, scrypt, produced by the library's own
+        // `hashPassword` and never written by hand. Empty here: this POC has no
+        // local login and never had one.
         local_accounts: [],
 
         // ── NOTHING IS LENT FOR THE REFUSALS, AND THAT IS THE NEST ANSWER ──

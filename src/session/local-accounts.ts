@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { verifyPassword } from "./password.js";
 import type { SsoMe, SsoProfile } from "../types.js";
 
 /**
@@ -11,15 +12,21 @@ import type { SsoMe, SsoProfile } from "../types.js";
  * it would let weeks of code go by reading fields that exist offline and not in
  * production, and the day the switch is flipped every one of them breaks at once.
  *
- * The password is in the CLEAR, and it must be. Nothing here claims to be secure:
- * these accounts live in an application's own source, they never leave it, and they
- * are never read when the library is on. Hashing them would suggest otherwise, which
- * is the more dangerous of the two.
+ * THE PASSWORD IS HASHED, and this reverses what this file used to say. The old
+ * argument was that nothing here claimed to be secure - these accounts lived in an
+ * application's own source, never left it, and hashing would have suggested a
+ * property that did not exist. It held exactly as long as the directory was a
+ * literal in a file. A directory that lives in a TABLE is dumped, backed up,
+ * replicated and opened with a SQL client, so the property has to become real, and a
+ * format that is right in one place and not the other is a format nobody can move.
+ *
+ * Produced by `hashPassword`, never by hand. See `password.ts` for why that is not a
+ * convenience.
  */
 export interface StandInAccount {
   email: string;
-  /** In the clear, and compared as-is. See above. */
-  password: string;
+  /** What `hashPassword` returned. Compared by `verifyPassword`, never as-is. */
+  passwordHash: string;
   firstName: string;
   lastName: string;
   /**
@@ -146,11 +153,34 @@ export function meOf(account: StandInAccount, resource: string) {
  * them apart tells whoever is asking which addresses exist.
  *
  * The email is matched case-insensitively because an address is, and a reader who
- * typed a capital on their phone is not making a mistake. The password is matched
- * exactly, because it is not an address.
+ * typed a capital on their phone is not making a mistake.
+ *
+ * ASYNC now, because scrypt is. The comparison is deliberately slow - that is what
+ * the hash is for - and doing it synchronously would hold the event loop for every
+ * concurrent sign-in.
+ *
+ * THE HASH IS STILL COMPUTED when no account matched the address, against a record
+ * that cannot match. Returning early on an unknown address answers in a millisecond
+ * where a known one takes fifty, and that difference is readable over the network:
+ * it turns this route into a way of listing which addresses exist here.
  */
-export const signIn = (accounts: StandInAccount[], email: string, password: string) =>
-  accounts.find((account) => account.email.toLowerCase() === email.trim().toLowerCase() && account.password === password) ?? null;
+export async function signIn(accounts: StandInAccount[], email: string, password: string) {
+  const wanted = email.trim().toLowerCase();
+  const account = accounts.find((held) => held.email.toLowerCase() === wanted) ?? null;
+
+  const matched = await verifyPassword(password, account?.passwordHash ?? DECOY);
+  return matched ? account : null;
+}
+
+/**
+ * A record no password verifies against, hashed under the same parameters as a real
+ * one so that failing against it costs the same as failing against a real one.
+ *
+ * Its own constant rather than a hash computed at import: computing one would run
+ * scrypt at module load, in every process, for a value that never has to be secret.
+ * It is the hash of a string nobody knows, and nothing depends on which one.
+ */
+const DECOY = "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 /** The account a sealed cookie points at, re-read on EVERY request. */
 export const findById = (accounts: StandInAccount[], id: string) => accounts.find((account) => idOf(account) === id) ?? null;

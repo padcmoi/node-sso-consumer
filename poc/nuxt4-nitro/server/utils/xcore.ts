@@ -131,18 +131,22 @@ export const xcore = createXcoreBridge({
     // namespaced, `isRoot`, and the `_sso_user_<email>` group. A screen reading
     // `me.profile.city` renders here and renders there.
     //
-    // The password is in the clear and must be: nothing here claims to be secure,
-    // and hashing it would suggest otherwise. What protects this list is that it is
-    // never read in production.
+    // The password is HASHED, scrypt, and produced by the library's own
+    // `hashPassword` - never written by hand. The hash below is `aaa`, which is what
+    // this POC signs in with.
+    //
+    // Written out as a literal rather than computed at boot, and that is the point
+    // of the format: the same string is what a row of a table will hold once the
+    // directory moves out of this file, so nothing about the comparison changes when
+    // it does.
     local_accounts: [
       {
         email: 'test@abc.fr',
-        password: 'aaa',
+        passwordHash: 'scrypt$16384$8$1$nKsZZsMHOMV934vPWFDjUA$bhPInhcyXB4-pP3uRphbQgHLs2kJ-oSf_cY0zDW6P8k',
         firstName: 'Juoien',
         lastName: 'Julien',
         permissions: ['read:user', 'write:user'],
       },
-
     ],
 
     // HOW this application says "refused" - ALL of it, in one function.
@@ -175,13 +179,6 @@ export const xcore = createXcoreBridge({
       }
       throw createError({ statusCode: refusal.status, statusMessage: refusal.message })
     },
-
-
-
-
-    // fakeAccounts: [
-    //   {id:123, email:"email@example.com", password:'mot de passe en clair faible', etc ...}
-    // ]
   },
 
   logger: console,

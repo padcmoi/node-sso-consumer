@@ -25,7 +25,7 @@ Un jeton appartient au x-core qui l'a frappé, et l'adresse de ce x-core est éc
 
 ## Le fichier
 
-```ts
+````ts
 import { createXcoreBridge, type SsoLogger, type StandInAccount, type XcoreBridge } from "@gestionpratique/node-sso-consumer";
 
 import { credentials } from "../hmac";
@@ -55,15 +55,25 @@ export interface SsoDeps {
  *   `permissions`  namespacées si elles ne le sont pas déjà, plus le groupe
  *                  `_sso_user_<email>` qu'x-core crée pour chaque compte
  *
- * Le mot de passe est en clair et il doit l'être : rien ici ne prétend être sûr,
- * et le hacher donnerait l'illusion inverse. Ce qui protège cette liste est qu'elle
- * n'existe pas en production - `mode: "sso"` ne la regarde pas.
+ * Le mot de passe est HACHÉ, scrypt, et produit par `hashPassword` - jamais écrit à
+ * la main. Ceci renverse ce que ce guide disait : l'argument du clair ne tenait que
+ * tant que l'annuaire était un littéral dans un fichier, et ces mêmes enregistrements
+ * ont vocation à passer en table - qui se dumpe, se sauvegarde et s'ouvre avec un
+ * client SQL. Un format juste à un endroit et faux à l'autre est un format qu'on ne
+ * peut pas déplacer.
+ *
+ * ```ts
+ * import { hashPassword } from "@gestionpratique/node-sso-consumer";
+ * console.log(await hashPassword("julien"));
+ * ```
  */
 const LOCAL_ACCOUNTS = [
   {
     id: "julien",
     email: "julien@example.test",
-    password: "julien",
+    // `await hashPassword("julien")`. Les paramètres voyagent avec le hash, donc un
+    // enregistrement écrit aujourd'hui reste vérifiable après qu'on les ait montés.
+    passwordHash: "scrypt$16384$8$1$MDEyMzQ1Njc4OWFiY2RlZg$YtynpqNQ8WfUAfUFJ0NsdjFpDxAiDx2VZHa4oO5LRFw",
     firstName: "Julien",
     lastName: "Example",
     // Ce que ce compte détient. Namespacées ou non : `read:user` devient
@@ -74,7 +84,8 @@ const LOCAL_ACCOUNTS = [
   {
     id: "admin",
     email: "admin@example.test",
-    password: "admin",
+    // `await hashPassword("admin")`.
+    passwordHash: "scrypt$16384$8$1$prcFfJv54XA3LQh6z_5uaw$Eqt4ZCF0KpYc7dq6FfSUNblf23YCHihj2cZgaEOV-x4",
     firstName: "Admin",
     lastName: "Example",
     // Vide, et `isRoot` à la place : x-core répond `isRoot: true` pour un compte qui
@@ -389,7 +400,7 @@ export const createXcore = ({ logger }: SsoDeps): XcoreBridge =>
   });
 
 export type Xcore = ReturnType<typeof createXcore>;
-```
+````
 
 ## Le démarrer, et l'arrêter
 
