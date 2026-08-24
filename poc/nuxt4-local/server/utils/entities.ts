@@ -77,7 +77,11 @@ export const SsoAccountEntity = new EntitySchema<SsoAccountRow>({
     origin: { name: "origin", type: "enum", enum: ["sso", "local"] },
 
     firstSeenAt: { name: "first_seen_at", type: "datetime", createDate: true },
-    lastSeenAt: { name: "last_seen_at", type: "datetime", updateDate: true },
+    // WRITTEN EXPLICITLY by `seen`, not `updateDate: true`. MariaDB only fires
+    // `ON UPDATE CURRENT_TIMESTAMP` when a column value actually changes, and an
+    // upsert that rewrites the same name and the same email changes nothing - so the
+    // column would have stayed at its creation time forever and read as "seen once".
+    lastSeenAt: { name: "last_seen_at", type: "datetime", default: () => "CURRENT_TIMESTAMP(6)" },
 
     // Refreshed at every sign-in. SOURCE in `'local'`, CACHE in `'sso'` - same
     // columns, opposite meaning, which is the one thing to keep in mind when reading

@@ -7,7 +7,7 @@ import {
   type XcoreBridge,
 } from "@gestionpratique/node-sso-consumer";
 import type { Pool } from "mysql2/promise";
-import { createPool, credentialsOf, settingsOf } from "./store";
+import { accountsOf, createPool, credentialsOf, settingsOf } from "./store";
 
 /**
  * ── WHY THIS FILE EXISTS, AND IT IS THE FINDING OF THIS POC ─────────────────────
@@ -139,9 +139,11 @@ const build = (): XcoreRuntime => {
         save: (values) => settings.upsertAll(values),
       },
 
-      // No `di.accounts`: this POC is in `mode: "sso"` and would never read one.
-      // It is a set of ACCESS FUNCTIONS over a table now, not a list, and the POC
-      // that exercises it is `poc/nuxt4-local`.
+      // ONE function of `di.accounts`, and the only one that means anything in
+      // `"sso"`: the projection. The four others read a directory this mode does not
+      // have. What `seen` writes is a row to hang a foreign key on - a key cannot
+      // cross two databases, and the account lives in x-core's.
+      accounts: accountsOf(pool),
 
       // ── HOW THIS APPLICATION SAYS "REFUSED" ─────────────────────────────
       //

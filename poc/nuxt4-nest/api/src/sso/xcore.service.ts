@@ -1,5 +1,6 @@
 import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { createXcoreBridge, type XcoreBridge } from "@gestionpratique/node-sso-consumer";
+import { AccountsStore } from "./accounts.store";
 import { CredentialsStore } from "./credentials.store";
 import { SettingsStore } from "./settings.store";
 
@@ -25,7 +26,7 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
 
   private readonly logger = new Logger("Sso");
 
-  constructor(settings: SettingsStore, credentials: CredentialsStore) {
+  constructor(settings: SettingsStore, credentials: CredentialsStore, accounts: AccountsStore) {
     this.bridge = createXcoreBridge({
       // ── WHICH DIRECTORY ANSWERS ───────────────────────────────────────────
       //
@@ -141,11 +142,15 @@ export class XcoreService implements OnApplicationBootstrap, OnModuleDestroy {
           save: (values) => settings.upsertAll(values),
         },
 
-        // ── PAS D'ANNUAIRE ICI ──────────────────────────────────────────────
+        // ── LA PROJECTION, ET RIEN D'AUTRE ──────────────────────────────────
         //
-        // `di.accounts` n'est pas prêté, et ce POC est en `mode: "sso"` : il ne serait
-        // jamais lu. C'est un jeu de QUATRE FONCTIONS D'ACCÈS sur une table depuis
-        // 0.2.0, plus une liste, et le POC qui l'exerce est `poc/nuxt4-local`.
+        // `di.accounts` ne porte ici QU'UN `seen`. Les quatre autres fonctions
+        // relèvent du mode local, où la librairie lit l'annuaire au lieu du
+        // fournisseur.
+        //
+        // Ce que `seen` écrit est une LIGNE À POINTER : une clé étrangère ne traverse
+        // pas deux bases, et le compte vit dans celle de x-core.
+        accounts,
 
         // ── NOTHING IS LENT FOR THE REFUSALS, AND THAT IS THE NEST ANSWER ──
         //

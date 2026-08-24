@@ -69,6 +69,37 @@ export const accounts: XcoreAccountStore = {
     return toAccount(row);
   },
 
+  /**
+   * A reader was just seen: write their row, or refresh it.
+   *
+   * BOTH MODES, and it is what makes `notes.owner` possible: a foreign key cannot
+   * cross two databases, so an application whose rows belong to somebody needs a
+   * local row to point at. In `"local"` the row already exists and this only
+   * refreshes it; in `"sso"` this is the ONLY thing that ever writes it.
+   *
+   * An upsert on the identity columns, and nothing else - `permissions` and
+   * `is_root` are deliberately not touched. In `"sso"` x-core recomputes them with
+   * every `me`, so a copy here would be a second truth that goes stale; in
+   * `"local"` they are the source and this must not overwrite them.
+   */
+  async seen(account) {
+    const repo = await useRepo<SsoAccountRow>(SsoAccountEntity);
+    await repo.upsert(
+      {
+        id: account.id,
+        origin: account.origin,
+        email: account.email,
+        displayName: account.displayName,
+        firstName: account.firstName,
+        lastName: account.lastName,
+        avatarUrl: account.avatarUrl,
+        // Explicit, for the reason written on the column.
+        lastSeenAt: new Date(),
+      },
+      ["id"]
+    );
+  },
+
   /** Change one. A patch carrying no `passwordHash` leaves the column alone. */
   async update(id, patch) {
     const repo = await useRepo<SsoAccountRow>(SsoAccountEntity);

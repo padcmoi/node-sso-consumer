@@ -11,11 +11,29 @@ import type { RowDataPacket } from "mysql2/promise";
  *
  * Three tables are left and none of them is a session:
  *
+ *   app_sso_accounts THE PROJECTION: one row per account that has signed in HERE.
+ *                    It exists so this application's own tables have a foreign key
+ *                    target - a key cannot cross two databases, and the account lives
+ *                    in x-core's. Written by `di.accounts.seen`, and by nothing else.
+ *                    No permission column: x-core recomputes them with every `me`,
+ *                    and a copy here would be a second truth going stale in silence
  *   app_settings     this application's own key/value shelf, which the pairing fills
  *   hmac_credential  the hash it signs x-core's API with, delivered by the broker
  *   services         its OWN data, which is the only thing it ever owned
  */
 const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS app_sso_accounts (
+    id VARCHAR(64) NOT NULL PRIMARY KEY,
+    origin ENUM('sso','local') NOT NULL,
+    first_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    email VARCHAR(320) NULL,
+    display_name VARCHAR(190) NULL,
+    first_name VARCHAR(190) NULL,
+    last_name VARCHAR(190) NULL,
+    avatar_url VARCHAR(1024) NULL,
+    UNIQUE KEY uq_app_sso_accounts_email (email)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   `CREATE TABLE IF NOT EXISTS app_settings (
     \`key\` VARCHAR(190) NOT NULL PRIMARY KEY,
     \`type\` ENUM('string','number','boolean','array','object','null') NOT NULL,

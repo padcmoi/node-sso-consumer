@@ -119,12 +119,16 @@ export const xcore = createXcoreBridge({
       save: (values) => settings.upsertAll(values),
     },
 
-    // ── PAS D'ANNUAIRE ICI ────────────────────────────────────────────────────
+    // ── LA PROJECTION, ET RIEN D'AUTRE ───────────────────────────────────────
     //
-    // `di.accounts` n'est pas prêté, et ce POC est en `mode: 'sso'` : il ne serait
-    // jamais lu. Il portait une liste en dur, ce qui n'a plus de sens depuis que la
-    // clé est un jeu de fonctions d'accès sur une table - et c'est `poc/nuxt4-local`
-    // qui prouve ce mode maintenant, avec `app_sso_accounts` derrière.
+    // `di.accounts` ne porte ici QU'UN `seen`. Les quatre autres fonctions relèvent
+    // du mode local, où la librairie lit l'annuaire au lieu du fournisseur ; les
+    // prêter ici serait quatre fonctions que rien n'appelle.
+    //
+    // Ce que `seen` écrit est une LIGNE À POINTER : une clé étrangère ne traverse pas
+    // deux bases, et le compte vit dans celle de x-core. Sans elle, aucune colonne de
+    // cette application ne peut appartenir à quelqu'un.
+    accounts,
 
     // HOW this application says "refused" - ALL of it, in one function.
     //

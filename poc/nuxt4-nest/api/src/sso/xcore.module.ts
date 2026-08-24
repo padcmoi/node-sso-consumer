@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER } from "@nestjs/core";
+import { AccountsStore } from "./accounts.store";
 import { CredentialsStore } from "./credentials.store";
 import { XcoreExceptionFilter } from "./xcore.filter";
 import { XcoreGuard } from "./xcore.guard";
@@ -17,7 +18,14 @@ import { SettingsStore } from "./settings.store";
  * anything, and the sign-in route simply does not exist.
  */
 @Module({
-  providers: [XcoreService, XcoreGuard, SettingsStore, CredentialsStore, { provide: APP_FILTER, useClass: XcoreExceptionFilter }],
+  providers: [
+    XcoreService,
+    XcoreGuard,
+    SettingsStore,
+    CredentialsStore,
+    AccountsStore,
+    { provide: APP_FILTER, useClass: XcoreExceptionFilter },
+  ],
   exports: [XcoreService, XcoreGuard],
 })
 export class XcoreModule {}

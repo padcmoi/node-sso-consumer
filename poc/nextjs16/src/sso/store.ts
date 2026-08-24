@@ -11,6 +11,18 @@ import type { Pool, RowDataPacket } from "mysql2/promise";
  * at the reader's end.
  */
 const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS app_sso_accounts (
+    id VARCHAR(64) NOT NULL PRIMARY KEY,
+    origin ENUM('sso','local') NOT NULL,
+    first_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_seen_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    email VARCHAR(320) NULL,
+    display_name VARCHAR(190) NULL,
+    first_name VARCHAR(190) NULL,
+    last_name VARCHAR(190) NULL,
+    avatar_url VARCHAR(1024) NULL,
+    UNIQUE KEY uq_app_sso_accounts_email (email)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   `CREATE TABLE IF NOT EXISTS app_settings (
     \`key\` VARCHAR(190) NOT NULL PRIMARY KEY,
     \`type\` ENUM('string','number','boolean','array','object','null') NOT NULL,
@@ -92,6 +104,32 @@ export const buildSchema = async (pool: Pool) => {
   }
   for (const statement of SCHEMA) await pool.query(statement);
 };
+
+/**
+ * `di.accounts` in `mode: "sso"` - ONE function, and the only one that means anything
+ * here.
+ *
+ * There is no directory to read: x-core answers who is there. What this application
+ * needs is a ROW to hang a foreign key on, because a key cannot cross two databases
+ * and the account lives in x-core's.
+ *
+ * `last_seen_at` is written EXPLICITLY rather than left to `ON UPDATE
+ * CURRENT_TIMESTAMP`: MariaDB only fires that when a column value actually changes,
+ * and a reader signing in with the same name changes nothing.
+ */
+export const accountsOf = (pool: Pool) => ({
+  async seen(account: XcoreSeenAccount) {
+    await pool.query(
+      `INSERT INTO app_sso_accounts (id, origin, email, display_name, first_name, last_name, avatar_url, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(6))
+       ON DUPLICATE KEY UPDATE
+         email = VALUES(email), display_name = VALUES(display_name),
+         first_name = VALUES(first_name), last_name = VALUES(last_name),
+         avatar_url = VALUES(avatar_url), last_seen_at = CURRENT_TIMESTAMP(6)`,
+      [account.id, account.origin, account.email, account.displayName, account.firstName, account.lastName, account.avatarUrl]
+    );
+  },
+});
 
 /**
  * This application's key/value shelf, and what replaces the hand-copied `.env` an
