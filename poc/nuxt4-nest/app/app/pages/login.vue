@@ -2,7 +2,7 @@
 /**
  * The sign-in screen, and ONLY while the library stands in for x-core.
  *
- * With `enabled: true` nobody ever lands here: the portal is the one place anybody
+ * With `mode: "sso"` nobody ever lands here: the portal is the one place anybody
  * signs in, and `middleware/auth.global.ts` sends a reader without a session there.
  * This page exists because standing in there IS no portal.
  *
@@ -87,7 +87,7 @@ async function submit() {
       <template #footer>
         <p class="text-sm text-muted">
           Ces comptes vivent dans <code class="font-mono">api/src/sso/xcore.service.ts</code>. Avec
-          <code class="font-mono">enabled: true</code>, cet écran n'est jamais atteint : c'est le portail qui connecte.
+          <code class="font-mono">mode: "sso"</code>, cet écran n'est jamais atteint : c'est le portail qui connecte.
         </p>
       </template>
     </UCard>
