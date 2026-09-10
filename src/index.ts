@@ -26,6 +26,12 @@ export type {
 export { SsoConfigService, type SsoConfigServiceOptions } from "./config.service.js";
 export { SsoAuthService, type SsoAuthServiceOptions, type SsoResolution } from "./auth.service.js";
 export {
+  SsoActivityService,
+  type SsoActivityServiceOptions,
+  type XcoreActivity,
+  type XcoreActivityResult,
+} from "./activity.service.js";
+export {
   SsoSessionService,
   type CookieJar,
   type CookieOptions,

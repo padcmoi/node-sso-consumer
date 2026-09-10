@@ -1,0 +1,9 @@
+{
+  "name": "poc-node-activity",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prove": "docker compose up --build --abort-on-container-exit --exit-code-from probe",
+    "down": "docker compose down --rmi local"
+  }
+}

@@ -1,6 +1,6 @@
 # Installing `@gestionpratique/node-sso-consumer` - instructions for an AI agent
 
-Describes **0.2.0**. If `package.json` in this package says a different version, stop and
+Describes **0.3.0**. If `package.json` in this package says a different version, stop and
 say so rather than guessing: this file is followed literally, so a drifted copy is worse
 than none.
 
@@ -80,6 +80,8 @@ xcore.middleware.requireSession()      nothing behind it is served without an ac
 xcore.middleware.requirePermissions()  refuses unless every action is held
 xcore.sessionOf(req, res)              the account, or null. Asks the provider EVERY time
 xcore.realtime.attach(server)          hook the socket bridge onto an existing HTTP server
+xcore.activity.publish(req, res, a)    what the reader did, into x-core's journal (0.3.0).
+                                       NEVER THROWS, returns { published }
 
 # mode: "local" only - the application's own directory
 xcore.accounts.signUp({ …, password })  create one and sign them in. HASHES with
@@ -114,6 +116,37 @@ seen({ id, origin, email, displayName, firstName, lastName, avatarUrl })
 permissions**: the provider recomputes them with every read, so a copy goes stale in
 silence and a join against it grants a right that was revoked. It fires once per account
 per process and again after a sign-out, not on every request, and it is not awaited.
+
+### Publishing what a reader did - `activity.publish` (0.3.0)
+
+x-core writes on its own only an application's SIGN-IN: the success, the one-time
+code, the refusal. What the reader does afterwards only the application knows, and it
+tells x-core through this call - the only way it can, since it speaks to x-core
+through this library and nothing else. Optional: an application that never calls it
+is exactly a 0.2.0 one.
+
+```ts
+const { published } = await xcore.activity.publish(req, res, {
+  action: "invoice.paid", // ^[a-z0-9]+([.-][a-z0-9]+)*$, 64 chars max
+  label: "Paid invoice F-2026-042", // what the journal shows, as given. 191 chars max
+  entity: { type: "invoice", id: 42, label: "F-2026-042" }, // optional
+  subjectId: otherAccountId, // optional: another account it concerns
+  details: { amount: 1200 }, // optional, 4 KB of JSON max. NEVER a secret
+});
+```
+
+- Call it from a handler, with the request being answered: the line is written under
+  the reader of THAT session. Behind `requireSession()` it reuses the token the guard
+  just proved; elsewhere it resolves the session itself.
+- It NEVER THROWS. A refusal, an unreachable provider, no session, or `mode: "local"`
+  all come back as `{ published: false }`, said in the log. Do not wrap it in a
+  try/catch, and do not make the gesture depend on it: the invoice was paid whether or
+  not the line was written.
+- x-core refuses an `action` starting with one of its own prefixes (`auth.`,
+  `account.`, `acl.`, `app.` and the rest): pick a vocabulary of your own
+  (`invoice.`, `note.`).
+- It needs the provider to have the route: an x-core without
+  `POST /api/v1/sso/consumer/activity` answers `404`, which comes back as `false`.
 
 ### The two entry points
 
@@ -540,5 +573,7 @@ the client mints another.
 - [ ] Assets are not guarded, and your own `/api/` is guarded by its handlers
 - [ ] If `seen` was lent: a row appears in `app_sso_accounts` after the first sign-in,
       and `last_seen_at` moves on the next one
+- [ ] If `activity.publish` is called: it answers `{ published: true }` against the
+      provider, and the line shows in that account's journal under this application
 
 If any box is unchecked, say which one rather than reporting success.

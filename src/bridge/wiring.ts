@@ -1,3 +1,4 @@
+import { SsoActivityService } from "../activity.service.js";
 import { SsoAuthService } from "../auth.service.js";
 import { SsoConfigService } from "../config.service.js";
 import { SsoHttpClient } from "../http.js";
@@ -72,6 +73,10 @@ export function buildServices(
     logger: options.logger,
   });
 
+  // What a reader did here, told to x-core. Only the transport: which token and
+  // which reader is decided per request, in `bridge/publish.ts`.
+  const activity = new SsoActivityService({ http, logger: options.logger });
+
   const sessions = new SsoSessionService({
     auth,
     identity,
@@ -136,5 +141,5 @@ export function buildServices(
     logger: options.logger,
   });
 
-  return { http, config, auth, sessions, live, realtime, middleware };
+  return { http, config, auth, activity, sessions, live, realtime, middleware };
 }

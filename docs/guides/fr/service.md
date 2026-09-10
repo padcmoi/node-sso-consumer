@@ -437,6 +437,25 @@ if (!started.ok) {
 await xcore.close();
 ```
 
+## Publier ce qu'un lecteur a fait (0.3.0)
+
+Rien à ajouter à ce fichier : `activity.publish` ne demande aucune option et rien
+d'injecté. Elle s'appelle depuis un handler, avec la requête en cours, pour que la
+ligne soit écrite au nom du lecteur de cette session :
+
+```ts
+const { published } = await xcore.activity.publish(req, res, {
+  action: "invoice.paid",
+  label: "Facture F-2026-042 payée",
+  entity: { type: "invoice", id: 42, label: "F-2026-042" },
+});
+```
+
+Elle ne lève jamais : `false` en `mode: "local"`, sans session, ou quand x-core a
+refusé ou n'a pas pu être joint, et le log le dit. x-core refuse les préfixes qu'il
+écrit lui-même (`auth.`, `account.`, `acl.`, `app.` et les autres), et aucun champ
+ne doit porter un secret : le journal est lu par le compte et par la console.
+
 ## Ce qui est injecté, et rien d'autre
 
 | Clé                                  | Reçoit                  | Rend                      | Appelée                                                 |

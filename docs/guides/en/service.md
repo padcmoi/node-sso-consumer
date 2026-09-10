@@ -458,6 +458,25 @@ if (!started.ok) {
 await xcore.close();
 ```
 
+## Publishing what a reader did (0.3.0)
+
+Nothing to add to this file: `activity.publish` needs no option and nothing
+injected. It is called from a handler, with the request being answered, so the line
+lands under the reader of that session:
+
+```ts
+const { published } = await xcore.activity.publish(req, res, {
+  action: "invoice.paid",
+  label: "Paid invoice F-2026-042",
+  entity: { type: "invoice", id: 42, label: "F-2026-042" },
+});
+```
+
+It never throws: `false` in `mode: "local"`, without a session, or when x-core
+refused or could not be reached, said in the log. x-core refuses the prefixes it
+writes itself (`auth.`, `account.`, `acl.`, `app.` and the rest), and never put a
+secret in any field: the journal is read by the account and by the console.
+
 ## What is injected, and nothing else
 
 | Key                                  | Given                  | Returns                   | Called                                      |

@@ -109,6 +109,9 @@ accounts.signUp({ …, password }) en créer un et le connecter. HACHE : le mot 
                                  n'atteint jamais di.accounts
 accounts.update(id, { password }) en modifier un. Hache si un mot de passe est donné
 
+activity.publish(req, res, a)    ce que le lecteur a fait, dans le journal de x-core
+                                 (0.3.0). NE LÈVE JAMAIS : { published: boolean }
+
 realtime.ticket(accessToken)     en frapper un : 32 octets, 30 secondes, usage unique
 realtime.attach(server)          accrocher le bridge sur un serveur HTTP existant
 follow({ accessToken, … })       une socket à soi, suivant UN compte
@@ -117,6 +120,8 @@ permissions(req) actions(req) can(req, a) canAll(…) canAny(…) assert(…)
 ```
 
 `sessionOf` est tout le côté serveur en un appel : il lit le cookie scellé, demande à x-core, fait tourner le couple si l'access token a expiré, re-scelle le nouveau, compare `portail` à `global`, et répond le compte sous la forme de [session.json](session.json) ou `null` si la session est terminée. **Il ne met jamais en cache.**
+
+`activity.publish` est le seul moyen pour une application de mettre une ligne dans le journal de x-core : x-core n'écrit de lui-même que la connexion à une application - la réussite, le code à usage unique, le refus - et ce que le lecteur fait ensuite, seule l'application le sait. Elle signe `POST /api/v1/sso/consumer/activity` au nom de cette application et porte l'access token de la session de la requête - celui que le garde vient de prouver quand il y en a un, sinon une session résolue sur place - donc la ligne est écrite au nom de ce lecteur, et x-core refuse un jeton qui appartient à une autre application. Elle ne vérifie pas l'action elle-même : les préfixes que x-core réserve à ses propres lignes (`auth.`, `account.`, `acl.`, `app.` et les autres) sont refusés là-bas, et une seconde liste ici dériverait de la première. Elle ne lève jamais, pour la même raison que `start()` et une de plus : un journal ne doit pas faire échouer le geste qu'il décrit. À `mode: "local"` elle n'appelle rien : seul le fournisseur tient un journal.
 
 Que `start()` ne lève pas est délibéré plutôt que laxiste. Un démarrage qui mourrait parce qu'un jeton a été dépensé, parce que le broker n'était pas encore levé ou parce que le fournisseur démarrait encore emporterait toute l'application avec lui, y compris les pages qui n'ont rien à voir avec le SSO et y compris ce qu'un opérateur utiliserait pour regarder le problème.
 
@@ -135,6 +140,11 @@ isPasswordHash(value)           si une chaîne est des nôtres
 accountIdOf(record)             l'id que cette librairie compose - `local-<sha256(email)>`
                                 quand un enregistrement n'en nomme pas - pour un
                                 magasin qui écrit ses lignes
+
+XcoreActivity                   ce que prend activity.publish : action, label, entity,
+                                subjectId, details
+XcoreActivityResult             { published: boolean }
+SsoActivityService              le transport derrière, pour un appelant qui tient un jeton
 
 XcoreMode                       "sso" | "local"
 XcoreAccountStore               les quatre fonctions d'accès de di.accounts
@@ -164,7 +174,7 @@ La moitié navigateur n'est pas facultative dans l'esprit : une application qui 
 
 ## Ce qu'elle ne fera pas
 
-Décider quoi que ce soit sur les données de l'application. La barrière qu'elle déclare dit qui peut entrer tout court ; qui peut toucher quelle facture est l'affaire de l'application, et l'a toujours été.
+Décider quoi que ce soit sur les données de l'application. La barrière qu'elle déclare dit qui peut entrer tout court ; qui peut toucher quelle facture est l'affaire de l'application, et l'a toujours été. Il en va de même du journal : `activity.publish` porte ce que l'application a choisi de dire, quand elle choisit de l'appeler, et rien n'est jamais publié à sa place.
 
 Posséder une page de connexion, une table d'utilisateurs, un mot de passe, un parcours de réinitialisation ou une table de sessions. C'est ce qu'elle remplace, pas ce qu'elle enveloppe. À `mode: "local"` elle authentifie contre un annuaire prêté, et même là l'application ne possède que l'ÉCRAN : la comparaison, le scellement et la session sont à la librairie.
 

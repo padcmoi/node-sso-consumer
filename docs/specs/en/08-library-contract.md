@@ -107,6 +107,9 @@ accounts.signUp({ …, password }) create one and sign them in. HASHES: the pass
                                  never reaches di.accounts
 accounts.update(id, { password }) change one. Hashes when a password is given
 
+activity.publish(req, res, a)    what the reader did, into x-core's journal (0.3.0).
+                                 NEVER THROWS: { published: boolean }
+
 realtime.ticket(accessToken)     mint one: 32 bytes, 30 seconds, single use
 realtime.attach(server)          hang the bridge on an existing HTTP server
 follow({ accessToken, … })       a socket of one's own, following ONE account
@@ -115,6 +118,8 @@ permissions(req) actions(req) can(req, a) canAll(…) canAny(…) assert(…)
 ```
 
 `sessionOf` is the whole of the server side in one call: it reads the sealed cookie, asks x-core, rotates when the access token has expired, seals the new pair back, compares `portail` against `global`, and answers the account as [session.json](session.json) or `null` when the session is over. **It never caches.**
+
+`activity.publish` is the only way an application can put a line in x-core's journal: x-core writes on its own only the sign-in to an application - the success, the one-time code, the refusal - and what the reader does afterwards only the application knows. It signs `POST /api/v1/sso/consumer/activity` as this application and carries the access token of the request's session - the one the guard just proved when there is one, or a session resolved on the spot - so the line is written under that reader, and x-core refuses a token belonging to another application. It does not check the action itself: the prefixes x-core reserves for its own lines (`auth.`, `account.`, `acl.`, `app.` and the rest) are refused over there, and a second list here would drift from the first. It never throws, for the same reason as `start()` and one more: a journal must not fail the gesture it describes. At `mode: "local"` it calls nothing - only the provider keeps a journal.
 
 `start()` not throwing is deliberate rather than lax. A boot that died because a token was spent, because the broker was not up yet or because the provider was still starting would take the whole application with it, including the pages that have nothing to do with the SSO and including whatever an operator would use to look at the problem.
 
@@ -131,6 +136,11 @@ isPasswordHash(value)           whether a string is one of ours
 
 accountIdOf(record)             the id this library composes - `local-<sha256(email)>`
                                 when a record names none - for a store writing rows
+
+XcoreActivity                   what activity.publish takes: action, label, entity,
+                                subjectId, details
+XcoreActivityResult             { published: boolean }
+SsoActivityService              the transport behind it, for a caller holding a token
 
 XcoreMode                       "sso" | "local"
 XcoreAccountStore               the four access functions of di.accounts
@@ -160,7 +170,7 @@ The browser half is not optional in spirit: an application that skips it has no 
 
 ## What it will not do
 
-Decide anything about the application's own data. The gate it declares says who may come in at all; who may touch which invoice is the application's business, and always was.
+Decide anything about the application's own data. The gate it declares says who may come in at all; who may touch which invoice is the application's business, and always was. The same goes for the journal: `activity.publish` carries what the application chose to say, when it chooses to call it, and nothing is ever published on its behalf.
 
 Own a login page, a user table, a password, a reset flow or a session table. Those are what it replaces, not what it wraps. At `mode: "local"` it authenticates against a lent directory, and even there the application owns only the SCREEN: the comparison, the seal and the session are the library's.
 

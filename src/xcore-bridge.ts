@@ -7,7 +7,9 @@ import { SeenAccounts } from "./bridge/projection.js";
 import { startPropagation } from "./propagation.js";
 import * as access from "./bridge/access.js";
 import * as boot from "./bridge/boot.js";
+import { publishActivity } from "./bridge/publish.js";
 import { addressesOf, type ProviderAddresses } from "./provider.js";
+import type { SsoActivityService, XcoreActivity } from "./activity.service.js";
 import type { SsoAuthService } from "./auth.service.js";
 import type { SsoConfigService } from "./config.service.js";
 import type { SsoHttpClient } from "./http.js";
@@ -60,6 +62,9 @@ export class XcoreBridge {
   readonly realtime: SsoRealtimeBridge;
   /** The accounts followed over the socket, empty when `live` is off. */
   readonly live: SsoLiveAccounts | null;
+
+  /** The transport behind `activity.publish`. */
+  private readonly activities: SsoActivityService;
 
   /**
    * What the application's store said, read once by `start()` and held after.
@@ -125,6 +130,7 @@ export class XcoreBridge {
     this.http = services.http;
     this.config = services.config;
     this.auth = services.auth;
+    this.activities = services.activity;
     this.sessions = services.sessions;
     this.live = services.live;
     this.realtime = services.realtime;
@@ -204,6 +210,24 @@ export class XcoreBridge {
     /** Change one. A patch with no password leaves the hash where it is. */
     update: (id: string, patch: Partial<Omit<StandInAccount, "passwordHash">> & { password?: string }) =>
       updateLocalAccount(this.ctx, id, patch),
+  };
+
+  /**
+   * What a reader did in this application, told to x-core's journal.
+   *
+   * The only way an application can put a line there: it speaks to x-core through
+   * this library and nothing else. What x-core writes on its own about an
+   * application is its sign-in - the success, the one-time code, the refusal - and
+   * nothing that happens afterwards, which only the application knows.
+   *
+   * `publish` takes the request being answered, so the line is written under the
+   * reader of THAT session, and never throws: a journal must not fail the gesture
+   * it describes. `{ published: false }` in `"local"`, with no session, or when
+   * x-core refused or could not be reached.
+   */
+  readonly activity = {
+    publish: (req: WebRequest, res: WebResponse, activity: XcoreActivity) =>
+      publishActivity(this.ctx, this.activities, req, res, activity),
   };
 
   /**

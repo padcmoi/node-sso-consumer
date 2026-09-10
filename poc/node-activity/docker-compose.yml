@@ -1,0 +1,12 @@
+name: poc-node-activity
+
+services:
+  probe:
+    build:
+      # The library's root, so `src/` is inside the build context.
+      context: ../..
+      dockerfile: poc/node-activity/Dockerfile
+    container_name: poc-node-activity
+    env_file: .env
+    # One run, one verdict: the container exits with the script's code.
+    restart: "no"
