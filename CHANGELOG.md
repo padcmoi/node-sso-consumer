@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## [Unreleased] - 2026-09-10
+## [0.3.0] - 2026-09-10
 
 - Add `activity.publish(req, res, activity)`, the way an application tells x-core what its reader did. x-core writes on its own only the sign-in to an application - the success, the one-time code, the refusal - and what happens afterwards only the application knows; it speaks to x-core through this library and nothing else, so without this call nothing it saw could ever reach the journal. `0.2.0` had no such call, hence a minor version: nothing else changes, and an application that upgrades without calling it behaves exactly as it did
 - Publish under the reader of the request being answered, never under an account named by the caller. The call carries the access token of that session - the pair `requireSession()` has just proven when there is one, so the provider is not asked twice in the same request, or a session resolved on the spot, which rotates what has to be - and x-core writes the line under the account that token stands for and refuses a token belonging to another application. So an application publishes for a reader it really holds, and for no one else
